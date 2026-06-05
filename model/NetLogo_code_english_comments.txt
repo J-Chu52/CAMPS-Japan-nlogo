@@ -1,0 +1,1904 @@
+extensions [array]
+
+globals [
+
+  ;; ===== Scenario and population =====
+  retirement-age
+  pension-system
+  household-count
+  firm-count
+  max-lifespan
+  contract-duration
+  youth-age-limit
+  birth-rate-shift    ;; ;; ===== Initialization parameters =====
+  kappa
+  phi
+  ini-price
+  ini-wage
+  ini-productivity
+  ini-production
+  ini-savings
+  initial-inventory-ratio
+  initial-young-unemp
+  initial-old-unemp
+  buffer-periods
+  reserve-years
+
+  ;; ===== Scenario behavioral parameters =====
+  reorg-prob
+  consumer-choice
+  job-application
+  wealth-consumption-cap
+
+  ;; ===== Tax rates and interest rates =====
+  tau-w
+  tau-pi
+  savings-return-rate
+  policy-rates
+
+  ;; ===== Time-series data (exogenous inputs) =====
+  productivity-growth-rates
+  wage-increase-rates
+  deposit-rates
+  lend-rates
+  paygo-rates
+  pension-annual-returns
+  age-distributions
+  death-prob
+  birth-rates-list
+
+  ;; ===== Real data (for plot comparison) =====
+  real-rgdp-growth
+  real-unemp
+  real-young-unemp
+  real-old-unemp
+  real-pension-growth
+  real-inflation
+
+  ;; ===== Market prices and CPI =====
+  mpc-income-baseline
+  mpc-wealth-baseline
+  market-price
+  previous-market-price
+  base-price
+  cpi
+  previous-cpi
+  inflation
+  price-adjustment
+
+
+  ;; ===== GDP =====
+  nominal-gdp
+  real-gdp
+  previous-real-gdp
+  gdp-growth
+
+
+  ;; ===== Labor market =====
+  total-workers
+  average-wage
+  avg-income
+  young-unemployment
+  old-unemployment
+  total-unemployment
+  avg-young-unemployment
+  avg-old-unemployment
+  total-vacancies
+  vacancy-rate
+  previous-unemployment
+  delta-unemployment
+
+  ;; ===== Current financial state and fiscal sector =====
+  credit-threshold
+  default-tolerance
+  bankruptcies-this-tick
+  loan-index
+  initial-total-loans
+
+  ;; ===== Pension system =====
+  pension-growth
+  annual-pension-growth
+  previous-year-pension-balance
+  pension-contributions
+  pension-benefits
+  pension-balance-history
+
+  ;; ===== Others =====
+  total-demand
+  tracked-firm
+
+  ;; ===== death =====
+  deaths-15-19  deaths-20-24  deaths-25-29  deaths-30-34
+  deaths-35-39  deaths-40-44  deaths-45-49  deaths-50-54
+  deaths-55-59  deaths-60-64  deaths-65-69  deaths-70-74
+  deaths-75-79  deaths-80-84  deaths-85-89  deaths-90-94
+  deaths-95-99  deaths-100plus
+
+]
+
+breed [households household]
+breed [firms firm]
+breed [banks bank]
+breed [governments government]
+
+households-own [
+  age
+  employed?
+  income
+  savings
+  pension
+  lifetime-wages
+  initial-wage
+  preferred-firm
+  actual-consumption
+  visited-firms
+  employer
+  contract-end
+  young?
+]
+
+firms-own [
+  workers
+  production-target
+  production-capacity
+  production
+  inventories
+  price
+  average-cost
+  wage-offer
+  debt
+  cash
+  profits
+  equity
+  productivity
+  missed-payments
+  payment-record
+  credit-rating
+  actual-loan
+  firm-interest-rate
+  leverage
+  sales
+  revenue
+  vacancies
+  size-factor ;Scale factor
+  firm-kappa;
+  liquidating?
+  will-reorganize?
+]
+
+banks-own [
+  total-loans
+  bad-debt
+  profit
+  loans-portfolio
+  total-deposits
+]
+
+governments-own [
+  fiscal-balance
+  tax-income
+  pension-expenditure
+  pension-balance
+  recapitalization-tax
+]
+
+to setup
+  clear-all
+
+  set pension-system "PAYGO"
+  set tau-pi profit-tax-rate
+  set phi credit-memory-window
+  set contract-duration contract-length
+  set max-lifespan 360
+  set youth-age-limit 40
+  if birth-rate-shift = 0 [ set birth-rate-shift 0 ]
+
+
+
+ifelse simulation-period = "1994-2003" or simulation-period = "1994-2003 uniform" [
+    set household-count 500 * n*
+    set firm-count 25 * n*
+    set kappa 1.5                      ;; Initial debt-to-equity ratio, reflecting Japanese corporate leverage in 1994
+    set retirement-age retirement-ages            ;; Model age 181 = real-world age 60 (age 0 corresponds to 15 years old, +1 each tick)
+    set buffer-periods 3               ;; Initial firm cash buffer = 3 periods of wage bills, moderately conservative for 1994
+    set reserve-years 3.5                ;; Pension system[Translated Comment]，[Translated Comment]1994[Translated Comment]
+    set wealth-consumption-cap 0       ;; 0 means no wealth consumption cap, allowing households to freely use savings
+
+    set initial-inventory-ratio 0.3   ;; Initial inventories = 55% of quarterly output, reflecting post-bubble excess inventories
+    set reorg-prob        reorganization-prob          ;; Bankrupt firms have a 95% probability of reorganization instead of permanent exit, reflecting zombie firms in Japan
+    set consumer-choice   consumer-choices            ;; Each consumer visits 3 firms per period (including preferred firm)
+    set job-application   job-applications            ;; Each job seeker applies to 3 firms per period
+
+    set ini-price         ini-price-level         ;; Initial price level, slightly above wages to reflect actual 1994 prices
+    set ini-wage          1.00         ;; Benchmark wage normalized to 1
+    set ini-productivity  1.00         ;; Initial unit labor productivity normalized to 1
+    set ini-production    ini-production-level         ;; Initial quarterly output (in wage units), corresponding to about 15–16 workers
+    set ini-savings       ini-wage * 3 ;; Initial savings = 3 quarters of wages, about 0.75 years of income
+    set price-adjustment price-adjustments
+
+    set mpc-income-baseline mpc-income
+    set mpc-wealth-baseline mpc-wealth
+
+    set credit-threshold credit-thre
+    set default-tolerance default-tole
+
+    set real-rgdp-growth  [
+    0           -0.005347673  0.011494129  -0.003957873  ; 1994 I-IV
+    0.010904365  0.009578850  0.011701146   0.002455290  ; 1995 I-IV
+    0.008321189  0.012613091  0.001220142   0.011196363  ; 1996 I-IV
+    0.002392138 -0.007276474  0.001889741   0.000395391  ; 1997 I-IV
+    -0.012328544 -0.004191365  0.001726302   0.008057437  ; 1998 I-IV
+    -0.013900295  0.003974216  0.005282880   0.000369111  ; 1999 I-IV
+    0.017216576  0.004503395  0.000235412   0.009746889  ; 2000 I-IV
+    0.007321953 -0.007428564 -0.010873785  -0.003431871  ; 2001 I-IV
+    0.001642769  0.008086376  0.003223503   0.002783040  ; 2002 I-IV
+    0.000578037  0.006797748  0.003055732   0.010929121  ; 2003 I-IV
+    ]
+
+    set real-unemp [
+    0.0287 0.0280 0.0297 0.0293
+    0.0303 0.0307 0.0317 0.0333
+    0.0337 0.0340 0.0333 0.0337
+    0.0333 0.0333 0.0343 0.0350
+    0.0367 0.0407 0.0427 0.0440
+    0.0460 0.0473 0.0470 0.0463
+    0.0483 0.0470 0.0467 0.0473
+    0.0477 0.0490 0.0513 0.0537
+    0.0527 0.0540 0.0543 0.0533
+    0.0533 0.0543 0.0517 0.0503
+    ]
+
+    set real-pension-growth [
+    0.0696 0.0594 0.0616 0.0405
+    0.0302 0.0154 -0.0167 -0.0188 0.0291
+    ]
+
+    set real-inflation [
+    0.63 -0.19 0.03 0.47   ; 1994 I-IV
+    -0.20 -0.30 0.00 -0.03 ; 1995 I-IV
+    0.03 -0.03 0.20 0.03   ; 1996 I-IV
+    0.30 -0.08 0.33 -0.03  ; 1997 I-IV
+    0.23 -0.13 -0.30 -0.17  ; 1998 I-IV
+    -0.43 -0.23 -0.07 -0.30; 1999 I-IV
+    0.03 -0.19 -0.16 -0.13 ; 2000 I-IV
+    -0.03 -0.46 -0.23 -0.36 ; 2001 I-IV
+    -0.33 0.03 -0.13 -0.10 ; 2002 I-IV
+    -0.07 0.07 -0.13 -0.20 ; 2003 I-IV
+    ]
+
+        ;; Productivity growth rate per worker
+    set productivity-growth-rates [
+      0.0020 0.0020 0.0020 0.0020   ; 1994 (0.8% / 4)
+      0.0065 0.0065 0.0065 0.0065   ; 1995 (2.6%)
+      0.00675 0.00675 0.00675 0.00675 ; 1996 (2.7%)
+      -0.00025 -0.00025 -0.00025 -0.00025 ; 1997 (-0.1%)
+      -0.0015 -0.0015 -0.0015 -0.0015 ; 1998 (-0.6%)
+      0.00125 0.00125 0.00125 0.00125 ; 1999 (0.5%)
+      0.0075 0.0075 0.0075 0.0075   ; 2000 (3.0%)
+      0.00225 0.00225 0.00225 0.00225 ; 2001 (0.9%)
+      0.00325 0.00325 0.00325 0.00325 ; 2002 (1.3%)
+      0.0045 0.0045 0.0045 0.0045   ; 2003 (1.8%)
+    ]
+
+    set wage-increase-rates [
+      ; 1993-1994 (ticks ~0-3, 起始年)
+    0.006492351 0.006492351 0.006492351 0.006492351
+    ; 1994-1995
+    0.00251387 0.00251387 0.00251387 0.00251387
+    ; 1995-1996
+    0.003690354 0.003690354 0.003690354 0.003690354
+    ; 1996-1997
+    0.002790934 0.002790934 0.002790934 0.002790934
+    ; 1997-1998
+    0.00016728 0.00016728 0.00016728 0.00016728
+    ; 1998-1999
+    0.001253761 0.001253761 0.001253761 0.001253761
+    ; 1999-2000
+    0.001330672 0.001330672 0.001330672 0.001330672
+    ; 2000-2001
+    0.00297816 0.00297816 0.00297816 0.00297816
+    ; 2001-2002
+    -0.002616089 -0.002616089 -0.002616089 -0.002616089
+    ; 2002-2003
+    -0.000413087 -0.000413087 -0.000413087 -0.000413087
+    ]
+
+    set productivity-growth-rates map [ g -> g * productivity-growth-scale ] productivity-growth-rates
+    set wage-increase-rates map [ g -> g * wage-growth-scale ] wage-increase-rates
+
+    set policy-rates [
+      1.75 1.75 1.75 1.75
+      1.75 1.00 0.5 0.5
+      0.5 0.5 0.5 0.5
+      0.5 0.5 0.5 0.5
+      0.5 0.5 0.5 0.5
+      0.5 0.5 0.5 0.5
+      0.5 0.5 0.5 0.5
+      0.5 0.35 0.25 0.1
+      0.1 0.1 0.1 0.1
+      0.1 0.1 0.1 0.1
+    ]
+
+    ;; Added: Real time deposit interest rates (deposits under 3 million yen / 1 year)
+    set deposit-rates [
+    1.71 1.80 1.95 2.10   ; 1994
+    2.02 1.11 0.54 0.46   ; 1995
+    0.45 0.47 0.41 0.29   ; 1996
+    0.27 0.29 0.30 0.26   ; 1997
+    0.27 0.25 0.25 0.19   ; 1998
+    0.17 0.15 0.14 0.14   ; 1999
+    0.13 0.13 0.14 0.16   ; 2000
+    0.14 0.06 0.05 0.04   ; 2001
+    0.04 0.035 0.034 0.032 ; 2002
+    0.032 0.032 0.031 0.031 ; 2003
+   ]
+
+    set lend-rates [
+      3.000 3.000 3.000 3.000
+      3.000 2.375 1.875 1.625
+      1.625 1.625 1.625 1.625
+      1.625 1.625 1.625 1.625
+      1.625 1.625 1.583 1.500
+      1.458 1.375 1.375 1.375
+      1.375 1.375 1.458 1.500
+      1.500 1.375 1.375 1.375
+      1.375 1.375 1.375 1.375
+      1.375 1.375 1.375 1.375
+    ]
+
+    set deposit-rates map [ r -> max list 0 (r + deposit-rate-shift) ] deposit-rates
+    set lend-rates map [ r -> max list 0 (r + lend-rate-shift) ] lend-rates
+
+    set paygo-rates [
+      0.165  0.165  0.165  0.165
+      0.165  0.165  0.165  0.165
+      0.1735 0.1735 0.1735 0.1735
+      0.1735 0.1735 0.1735 0.1735
+      0.1735 0.1735 0.1735 0.1735
+      0.1735 0.1735 0.1735 0.1735
+      0.1735 0.1735 0.1735 0.1735
+      0.1735 0.1735 0.1735 0.1735
+      0.1735 0.1735 0.1735 0.1735
+      0.1358 0.1358 0.1358 0.1358]
+    set pension-annual-returns [
+      0.0534 0.0524 0.0499 0.0466 0.0415
+      0.0362 0.0322 0.0199 0.0021 0.0491]
+
+ifelse simulation-period = "1994-2003 uniform" [
+      ;; ---------- Uniform: Equal population density at each age ----------
+      ;; Design: 18 age groups of width 20 years, about 1.4 people per age
+      ;; - 14 [Translated Comment] 28 [Translated Comment] + 4 [Translated Comment] 27 [Translated Comment]
+      ;; - Total population = 14×28 + 4×27 = 500 (exactly matching the baseline)
+      ;; - Retired cohort (≥180, corresponding to real age 60+) totals 220 people, dependency ratio ≈ 0.79
+      ;; This is a truly uniform-shaped population distribution, in strong contrast to the baseline pyramid structure
+set age-distributions [
+    [0 20 28]      [20 40 28]     [40 60 28]
+    [60 80 28]     [80 100 28]    [100 120 28]
+    [120 140 28]   [140 160 28]   [160 180 28]
+    [180 200 28]   [200 220 28]   [220 240 28]
+    [240 260 28]   [260 280 28]   [280 300 27]
+    [300 320 27]   [320 340 27]   [340 360 27]
+  ]
+    ][
+     ;; ---------- Baseline: Actual Japanese population structure in 1994 ----------
+  set age-distributions [
+    [0 20 42 ]     [20 40 48 ]     [40 60 41 ]
+    [60 80 38 ]    [80 100 38 ]    [100 120 45 ]
+    [120 140 48 ]  [140 160 43 ]   [160 180 38 ]
+    [180 200 35 ]  [200 220 30 ]   [220 240 21 ]
+    [240 260 15 ]  [260 280 11 ]   [280 300 5 ]
+    [300 320 1 ]   [320 340 1 ]    [340 360 0 ]
+  ]
+    ]
+
+    set age-distributions map [dist ->
+      (list (item 0 dist) (item 1 dist) (round ((item 2 dist) * n*)))
+    ] age-distributions
+
+    let base-births [8 7 7 7 7 7 7 6 6 6]
+    set birth-rates-list map [ b -> round ((b + birth-rate-shift) * n*) ] base-births
+
+    let base-death-prob [
+      [0    20   9.7514E-05]  [20   40   1.2627E-04]  [40   60   1.3078E-04]
+      [60   80   1.5954E-04]  [80   100  2.2483E-04]  [100  120  3.5694E-04]
+      [120  140  5.8276E-04]  [140  160  9.1400E-04]  [160  180  1.4165E-03]
+      [180  200  2.2473E-03]  [200  220  3.4430E-03]  [220  240  5.4644E-03]
+      [240  260  9.5878E-03]  [260  280  1.7547E-02]  [280  300  3.0964E-02]
+      [300  320  5.2730E-02]  [320  340  8.3501E-02]  [340  360  1.2674E-01]
+    ]
+
+let factor death-prob-shift
+set death-prob map [ row ->
+  (list
+    (item 0 row)
+    (item 1 row)
+    (min list 1 (max list 0 ((item 2 row) * factor))))
+] base-death-prob
+
+
+
+ ]
+  [ ;; 2009-2018
+    set household-count 527 * n*
+    set firm-count 25 * n*
+    set kappa 0.8
+    set retirement-age 201
+    set buffer-periods 6
+    set reserve-years 3
+    set wealth-consumption-cap 0
+
+    set initial-inventory-ratio 0.15
+    set reorg-prob        0.95
+    set consumer-choice   4
+    set job-application   4
+
+    set ini-price         1.15
+    set ini-wage          1.02
+    set ini-productivity  1.13
+    set ini-production    16
+    set ini-savings       ini-wage * 3
+
+    set mpc-income-baseline 0.85
+    set mpc-wealth-baseline 0.05
+
+    set credit-threshold 0.4
+    set default-tolerance 0.5
+    set price-adjustment 0.01
+
+    set real-rgdp-growth [
+    0            0.019589567 -0.000451180  0.012166397  ; 2009 I-IV
+    0.010726515  0.012022291  0.018103149 -0.008349738  ; 2010 I-IV
+   -0.010311326 -0.008615968  0.024195352 -0.001594150  ; 2011 I-IV
+    0.014489995 -0.009401067 -0.003919737 -0.000862289  ; 2012 I-IV
+    0.014047956  0.009090528  0.009438493 -0.001289352  ; 2013 I-IV
+    0.008286278 -0.017946022  0.000679255  0.004576922  ; 2014 I-IV
+    0.015601968  0.001512786  0.000859375 -0.001731566  ; 2015 I-IV
+    0.007742811 -0.001714231  0.002032295  0.001315288  ; 2016 I-IV
+    0.007871782  0.003955777  0.008667908  0.000516537  ; 2017 I-IV
+    0.000787754  0.003945220 -0.004973548 -0.002572280  ; 2018 I-IV
+    ]
+
+    set real-unemp [
+   0.0457 0.0510 0.0543 0.0520   ; Year 1 I-IV
+   0.0503 0.0513 0.0507 0.0500   ; Year 2 I-IV
+   0.0473 0.0467 0.0447 0.0447   ; Year 3 I-IV
+   0.0450 0.0440 0.0423 0.0417   ; Year 4 I-IV
+   0.0420 0.0403 0.0393 0.0387   ; Year 5 I-IV
+   0.0367 0.0363 0.0357 0.0347   ; Year 6 I-IV
+   0.0350 0.0337 0.0337 0.0327   ; Year 7 I-IV
+   0.0323 0.0317 0.0303 0.0300   ; Year 8 I-IV
+   0.0290 0.0287 0.0280 0.0270   ; Year 9 I-IV
+   0.0247 0.0237 0.0243 0.0247   ; Year 10 I-IV
+   ]
+
+    set real-pension-growth [
+   -0.0547 -0.0233 0.0573 0.0486
+   0.1056 -0.0200 0.0785 0.0724 0.0157
+   ]
+
+    set real-inflation [
+    -0.91 -0.43 -0.30 -0.40   ; 2009 I-IV
+    0.20 -0.18 -0.35 0.18     ; 2010 I-IV
+    -0.21 0.00 0.11 -0.21     ; 2011 I-IV
+    0.46 -0.21 -0.46 0.00    ; 2012 I-IV
+    0.11 0.11 0.67 0.49      ; 2013 I-IV
+    0.21 0.24 0.41 -0.27     ; 2014 I-IV 2014q2 2.19换成了0.24
+    0.03 0.37 0.00 -0.24     ; 2015 I-IV
+    -0.10 0.03 -0.14 0.44     ; 2016 I-IV
+    -0.07 0.20 0.07 0.41     ; 2017 I-IV
+    0.61 -0.40 0.50 0.13     ; 2018 I-IV
+    ]
+
+
+   set productivity-growth-rates [
+     -0.01075 -0.01075 -0.01075 -0.01075   ; 2009 (-4.3%)
+     0.011    0.011    0.011    0.011      ; 2010 (4.4%)
+     0.00025  0.00025  0.00025  0.00025    ; 2011 (0.1%)
+     0.004    0.004    0.004    0.004      ; 2012 (1.6%)
+     0.00325  0.00325  0.00325  0.00325    ; 2013 (1.3%)
+     -0.001   -0.001   -0.001   -0.001     ; 2014 (-0.4%)
+     0.00275  0.00275  0.00275  0.00275    ; 2015 (1.1%)
+     -0.00075 -0.00075 -0.00075 -0.00075   ; 2016 (-0.3%)
+     0.0015   0.0015   0.0015   0.0015     ; 2017 (0.6%)
+     -0.00375 -0.00375 -0.00375 -0.00375   ; 2018 (-1.5%)
+   ]
+
+   set wage-increase-rates [
+      0.00413 0.00413 0.00413 0.00413
+      0.00413 0.00413 0.00413 0.00413
+      0.00422 0.00422 0.00422 0.00422
+      0.00424 0.00424 0.00424 0.00424
+      0.00422 0.00422 0.00422 0.00422
+      0.00513 0.00513 0.00513 0.00513
+      0.00545 0.00545 0.00545 0.00545
+      0.00496 0.00496 0.00496 0.00496
+      0.00492 0.00492 0.00492 0.00492
+      0.00513 0.00513 0.00513 0.00513
+    ]
+
+    set productivity-growth-rates map [ g -> g * productivity-growth-scale ] productivity-growth-rates
+    set wage-increase-rates map [ g -> g * wage-growth-scale ] wage-increase-rates
+
+    set policy-rates n-values 40 [0.3] ;10年没有改变
+
+    set deposit-rates [
+    0.244 0.223 0.172 0.125   ; 2009
+    0.088 0.068 0.065 0.037   ; 2010
+    0.035 0.034 0.031 0.027   ; 2011
+    0.027 0.026 0.026 0.026   ; 2012
+    0.026 0.026 0.026 0.026   ; 2013
+    0.026 0.026 0.026 0.026   ; 2014
+    0.026 0.026 0.026 0.026   ; 2015
+    0.026 0.021 0.015 0.015   ; 2016
+    0.015 0.014 0.013 0.011   ; 2017
+    0.011 0.011 0.011 0.011   ; 2018
+    ]
+
+    set lend-rates n-values 40 [1.475]  ;10年没有改变
+
+    set deposit-rates map [ r -> max list 0 (r + deposit-rate-shift) ] deposit-rates
+    set lend-rates map [ r -> max list 0 (r + lend-rate-shift) ] lend-rates
+
+    set paygo-rates [
+      0.15704 0.15704 0.15704 0.15704
+      0.16058 0.16058 0.16058 0.16058
+      0.16412 0.16412 0.16412 0.16412
+      0.16766 0.16766 0.16766 0.16766
+      0.17120 0.17120 0.17120 0.17120
+      0.17474 0.17474 0.17474 0.17474
+      0.17828 0.17828 0.17828 0.17828
+      0.18182 0.18182 0.18182 0.18182
+      0.18300 0.18300 0.18300 0.18300
+      0.18300 0.18300 0.18300 0.18300
+    ]
+
+    set pension-annual-returns [
+     0.0754 -0.0026 0.0217 0.0957 0.0822
+     0.1161 -0.0363 0.0547 0.0651 0.0143]
+
+    set age-distributions [
+     [0 20 29]     [20 40 33]    [40 60 36]
+     [60 80 42]    [80 100 46]   [100 120 41]
+     [120 140 37]  [140 160 37]  [160 180 44]
+     [180 200 44]  [200 220 40]  [220 240 33]
+     [240 260 28]  [260 280 20]  [280 300 11]
+     [300 360 6]
+    ]
+
+    set age-distributions map [dist ->
+      (list (item 0 dist) (item 1 dist) (round ((item 2 dist) * n*)))
+    ] age-distributions
+
+
+    let base-births [5 5 5 6 6 6 6 6 6 6]
+    set birth-rates-list map [ b -> round ((b + birth-rate-shift) * n*) ] base-births
+
+
+
+    let base-death-prob [
+      [0   20   0.00005425]   [20  40   0.00009626]   [40  60   0.00010677]
+      [60  80   0.00012902]   [80 100   0.00017330]   [100 120  0.00025985]
+      [120 140  0.00040775]   [140 160  0.00064988]   [160 180  0.00099950]
+      [180 200  0.00156391]   [200 220  0.00239031]   [220 240  0.00372830]
+      [240 260  0.00630080]   [260 280  0.01160314]   [280 300  0.02145756]
+      [300 320  0.03930635]   [320 340  0.07016198]   [340 360  0.11969067]
+    ]
+
+let factor death-prob-shift
+set death-prob map [ row ->
+  (list
+    (item 0 row)
+    (item 1 row)
+    (min list 1 (max list 0 ((item 2 row) * factor))))
+] base-death-prob
+
+]
+
+  set bankruptcies-this-tick 0
+  set pension-balance-history array:from-list n-values 4 [0]
+
+
+
+
+
+  set tau-w (item 0 paygo-rates) * paygo-rate-scale
+  set savings-return-rate (item 0 deposit-rates) / 4 / 100
+
+
+
+create-firms firm-count [
+  set liquidating? false
+  set will-reorganize? false
+
+  set workers []
+
+
+  set production ini-production + random-float 1          ; Small random variation to avoid identical values
+  set production-target production ;+ random-float 1      ; Initial target slightly higher than production
+  set production-capacity production
+
+  set sales 0
+
+  set inventories production * (initial-inventory-ratio + random-float 0.05)  ;
+
+  set price ini-price + random-float 0.01                   ; Small price differences
+  set profits 0
+
+  set wage-offer ini-wage
+
+  ;; Estimate an initial worker count for wage bills: output / productivity per worker
+  let initial-workers max list 1 round (production / ini-productivity)
+
+  set cash buffer-periods * wage-offer * initial-workers
+
+
+  set firm-kappa kappa * (0.8 + random-float 0.4)
+  set equity cash / (firm-kappa + 1)
+  set debt cash - equity
+
+  set productivity ini-productivity + random-float 0.05
+  set missed-payments 0
+  set payment-record n-values phi [0]
+  set actual-loan 0
+  set firm-interest-rate (item 0 policy-rates) / 100 / 4
+  set leverage debt / equity
+  set vacancies 0
+
+  setxy random-xcor random-ycor
+  set shape "factory"
+  set color blue
+]
+
+  set total-demand 0;sum[sales] of firms
+  set tracked-firm one-of firms
+
+  create-households household-count [
+    let assigned false
+    let i 0
+    while [not assigned and i < length age-distributions] [
+      if item 2 (item i age-distributions) > 0 [
+        let age-range item i age-distributions
+        set age random (item 1 age-range - item 0 age-range) + item 0 age-range
+        let current-count item 2 (item i age-distributions)
+        set age-distributions replace-item i age-distributions (replace-item 2 (item i age-distributions) (current-count - 1))
+        set assigned true
+      ]
+      set i i + 1
+    ]
+    set employed? false
+    set actual-consumption 0
+    set income 0 ;ini-wage * 0.9
+    set savings ini-savings + random-float 1 ;; set lifetime-wages []
+    if age > 0 [
+  let quarters-worked min list age retirement-age
+  set lifetime-wages n-values quarters-worked [ini-wage * 0.9]
+ ]
+
+    set employer nobody
+    set contract-end 0
+    set young? age <= youth-age-limit
+    setxy random-xcor random-ycor
+    set shape "person"
+    set color ifelse-value (age >= retirement-age) [red] [ifelse-value age <= 80 [yellow] [green]]
+  ]
+
+  create-banks 1 [
+    set total-loans 0
+    set bad-debt 0
+    set profit 0
+    set loans-portfolio []
+    set total-deposits 0
+    setxy 0 0
+    set shape "building institution"
+    set color violet
+  ]
+
+  create-governments 1 [
+    set tax-income 0
+    set pension-expenditure 0
+    set fiscal-balance 0
+    set pension-balance 0
+    setxy 0 10
+    set shape "house"
+    set color gray
+  ]
+
+
+
+
+set market-price mean [price] of firms ;Initial setting, updated later
+
+  ;; --- initialize demand consistently (units) ---
+  ;; let avg-price-init mean [price] of firms
+  ;; if avg-price-init <= 0 [ set avg-price-init ini-price ]
+  ;; let total-budget-init sum [ (mpc-income * income) + (mpc-wealth * savings) ] of households
+  ;; set total-demand total-budget-init / avg-price-init
+
+
+set previous-market-price market-price
+set base-price market-price
+
+
+;; CPI [Translated Comment]100[Translated Comment]
+set cpi 100
+set previous-cpi 100
+set inflation (cpi - previous-cpi) / previous-cpi
+
+;; ===== GDP =====
+;; [Translated Comment]/[Translated Comment]gdp
+set nominal-gdp sum [production * price] of firms
+set real-gdp nominal-gdp / (cpi / 100)
+
+
+;; ===================================================
+;; Directly set initial unemployment rates (1994 Q1 data)
+;; ===================================================
+
+;; 1. Directly define initial unemployment rates
+ifelse simulation-period = "1994-2003" or simulation-period = "1994-2003 uniform" [
+  set initial-young-unemp 5.33
+  set initial-old-unemp   2.46
+][
+  set initial-young-unemp 8.73
+  set initial-old-unemp   4.16
+]
+
+;; 2. Convert to employment rates
+let initial-young-emp-rate 1 - (initial-young-unemp / 100)
+let initial-old-emp-rate 1 - (initial-old-unemp / 100)
+
+;; 3. Handle young and older workers separately
+let young-workers households with [age < retirement-age and young?]
+let old-workers households with [age < retirement-age and not young?]
+
+  ;; Simultaneously enforce retired status
+ask households with [age >= retirement-age] [
+  set employed? false
+  set employer nobody
+]
+
+;; 4. Calculate the number of employed workers needed
+let young-to-employ round (count young-workers * initial-young-emp-rate)
+let old-to-employ round (count old-workers * initial-old-emp-rate)
+
+;; 5. Randomly select employed workers
+let young-employed n-of young-to-employ young-workers
+let old-employed n-of old-to-employ old-workers
+let all-employed (turtle-set young-employed old-employed)
+
+;; 6. [Translated Comment]
+let firms-to-hire firms with [true]
+foreach sort all-employed [ worker ->
+  ask worker [
+    set employed? true
+    let chosen-firm min-one-of firms-to-hire [length workers]
+    set employer chosen-firm
+    set contract-end random contract-duration  ;; Modified: directly use random values，
+    set initial-wage [wage-offer] of chosen-firm
+    ask chosen-firm [
+      set workers lput worker workers
+    ]
+  ]
+]
+
+
+  ask firms [
+    foreach workers [ w ->
+      ask w [
+        set initial-wage [wage-offer] of myself
+      ]
+    ]
+  ]
+
+ ;; ===== [Translated Comment] tick 0 [Translated Comment] =====
+  let labour-force households with [age < retirement-age]
+  let unemployed-labour-force labour-force with [not employed?]
+
+  let young-labour-force households with [age <= youth-age-limit and age < retirement-age]
+  let old-labour-force households with [age > youth-age-limit and age < retirement-age]
+
+  let unemployed-young young-labour-force with [not employed?]
+  let unemployed-old old-labour-force with [not employed?]
+
+  set young-unemployment ifelse-value (count young-labour-force > 0)
+    [count unemployed-young / count young-labour-force]
+    [0]
+
+  set old-unemployment ifelse-value (count old-labour-force > 0)
+    [count unemployed-old / count old-labour-force]
+    [0]
+
+  set total-unemployment ifelse-value (count labour-force > 0)
+    [count unemployed-labour-force / count labour-force]
+    [0]
+
+  set total-workers count labour-force
+  set total-vacancies sum [vacancies] of firms
+  set vacancy-rate ifelse-value (total-workers > 0)
+    [total-vacancies / total-workers]
+    [0]
+
+;; ===== [Translated Comment]（[Translated Comment]retirement-age）[Translated Comment]Pension system =====
+ask households with [age >= retirement-age] [
+  ifelse length lifetime-wages > 0 [
+    set pension mean lifetime-wages * pension-replace-scale
+  ][ set pension 0 ]
+]
+
+;; ===== Additionally: handle individuals above the baseline threshold (181) who are not currently retired =====
+;; Temporarily calculate their hypothetical pension for initializing pension balance
+;; Do not change their actual pension values (they remain part of the labor force)
+let baseline-quarterly-benefits 0
+ask households with [age >= retirement-age] [
+  let this-pension ifelse-value (length lifetime-wages > 0)
+    [ mean lifetime-wages * pension-replace-scale ]
+    [ 0 ]
+  set baseline-quarterly-benefits baseline-quarterly-benefits + this-pension
+]
+
+let reserve-quarters reserve-years * 4
+
+;; ===== Initialize pension balance =====
+;; [Translated Comment] 1994 [Translated Comment]Pension system[Translated Comment]（[Translated Comment]）。
+;; [Translated Comment]：[Translated Comment]，[Translated Comment]Pension system[Translated Comment]。
+;; [Translated Comment]：reserve-quarters × baseline [Translated Comment] × [Translated Comment] × ini-wage × 0.9
+;; - baseline [Translated Comment] = 119 × n*（1994 [Translated Comment]）
+;; - 0.9 [Translated Comment] setup [Translated Comment] lifetime-wages [Translated Comment] (ini-wage * 0.9)
+;; baseline [Translated Comment] uniform [Translated Comment]，[Translated Comment]"[Translated Comment]"[Translated Comment]。
+let baseline-retirees-count 119 * n*
+let baseline-quarterly-benefits-historical baseline-retirees-count * pension-replace-scale * ini-wage * 0.9
+let historical-pension-balance reserve-quarters * baseline-quarterly-benefits-historical
+
+ask one-of governments [
+  set pension-expenditure sum [pension] of households with [age >= retirement-age]
+  set pension-balance historical-pension-balance
+]
+
+  ;; Initialize pension-balance-history if it will be used later
+  set pension-balance-history array:from-list n-values 4 [[pension-balance] of one-of governments]
+
+
+  ;---------------------------------
+  ;; Initialize income for employed households
+ask households with [employed?] [
+  if is-agent? employer [
+    let current-wage [wage-offer] of employer
+    set income current-wage * (1 - tau-w / 2) + savings * savings-return-rate
+  ]
+]
+
+;; Initialize income for retirees
+ask households with [age >= retirement-age] [
+  set income pension + savings * savings-return-rate
+]
+  ;----------------------------------
+
+
+
+reset-ticks
+  update-statistics
+
+set previous-real-gdp real-gdp
+set previous-unemployment total-unemployment
+set initial-total-loans sum [debt] of firms
+set previous-year-pension-balance [pension-balance] of one-of governments
+set annual-pension-growth 0
+
+end
+
+to go
+
+  ;; reset death counters at the start of each tick
+  set deaths-15-19  0
+  set deaths-20-24  0
+  set deaths-25-29  0
+  set deaths-30-34  0
+  set deaths-35-39  0
+  set deaths-40-44  0
+  set deaths-45-49  0
+  set deaths-50-54  0
+  set deaths-55-59  0
+  set deaths-60-64  0
+  set deaths-65-69  0
+  set deaths-70-74  0
+  set deaths-75-79  0
+  set deaths-80-84  0
+  set deaths-85-89  0
+  set deaths-90-94  0
+  set deaths-95-99  0
+  set deaths-100plus 0
+
+
+
+  if ticks >= 40 [ stop ]
+
+  if ticks < length productivity-growth-rates [
+    let growth item ticks productivity-growth-rates
+    ask firms [
+      set productivity productivity * (1 + growth)
+      set production-capacity productivity * length workers
+    ]
+  ]
+
+  if ticks < length deposit-rates [
+    let annual-rate item ticks deposit-rates
+    set savings-return-rate annual-rate / 4 / 100
+  ]
+
+  if ticks < length paygo-rates [
+  set tau-w (item ticks paygo-rates) * paygo-rate-scale
+]
+
+  ;if ticks = 400 [
+  ;  set retirement-age delayed-age
+  ;]
+
+  ask firms [firm-decisions]
+  labor-market
+  ask firms [update-credit-rating]
+  ask firms [apply-for-loan]
+  check-financial-firing
+  ask firms [update-production-capacity]
+  ask firms [produce]
+  ask households [
+    update-income
+  ]
+  calculate-demand
+  goods-market
+  ask firms [firm-financials]
+  ask firms [update-credit-rating]
+  bank-financial-update
+  firm-exit-and-entry
+  ask households [check-death]
+  add-new-births ;Added: Fixed number of newborns every four ticks
+  ask households [age-and-retire]
+  update-pensions
+
+  ;; ===== Update prices and CPI =====
+  set previous-market-price market-price
+  ;market-price 已在 goods-market 中计算（成交加权）
+
+  ;; Directly calculate CPI using the current average price (no smoothing)
+  set previous-cpi cpi
+  set cpi (market-price / base-price) * 100   ;; base-price remains fixed at the initial value
+  set inflation (cpi - previous-cpi) / previous-cpi
+
+  ;; ===== Update GDP =====
+
+  set nominal-gdp sum [production * price] of firms  ;; At this point, liquidating firms have production = 0, so excluding them is unnecessary.
+  ;; Real GDP = Nominal GDP / (CPI/100)
+  if cpi != 0 [
+    set real-gdp nominal-gdp / (cpi / 100)
+  ]
+
+
+
+  update-statistics
+  ;plot-age-distribution-histogram
+  ;plot-consumption-by-age-histogram
+
+
+  tick
+end
+
+to firm-decisions
+  if liquidating? [ stop ]
+
+
+
+
+
+
+  ifelse inventories = 0 and price >= previous-market-price [
+    set production-target production-target * (1 + random-float production-adjustment)
+  ][
+    if inventories > 0 and price < previous-market-price [
+      set production-target production-target * (1 - random-float production-adjustment)
+    ]
+  ]
+
+
+  set production-capacity productivity * length workers
+  let desired-workers ceiling (production-target / productivity)
+  if desired-workers < 0 [set desired-workers 0]
+  let expired-workers []
+  let retiring-workers []
+  let active-workers workers
+  foreach active-workers [ w ->
+    if [contract-end] of w <= ticks [
+      set expired-workers lput w expired-workers
+    ]
+    if [age] of w >= retirement-age [
+      set retiring-workers lput w retiring-workers
+    ]
+  ]
+  foreach retiring-workers [ w ->
+    ask w [
+      set employed? false
+      set employer nobody
+      set contract-end 0
+    ]
+    set workers remove w workers
+  ]
+
+  let current-workers length workers
+  let renewed-workers 0
+  if not empty? expired-workers [
+    foreach expired-workers [ w ->
+      if current-workers + renewed-workers < desired-workers [
+        ask w [
+          set contract-end ticks + random contract-duration
+          set initial-wage [wage-offer] of myself
+        ]
+        set renewed-workers renewed-workers + 1
+      ]
+      if current-workers + renewed-workers >= desired-workers [
+        ask w [
+          set employed? false
+          set employer nobody
+          set contract-end 0
+        ]
+        set workers remove w workers
+      ]
+    ]
+  ]
+  set current-workers length workers + renewed-workers
+  set vacancies 0
+  if current-workers < desired-workers [
+    set vacancies desired-workers - current-workers
+  ]
+
+  if ticks < length wage-increase-rates [
+  let g item ticks wage-increase-rates   ;; g [Translated Comment]，[Translated Comment] 0.003 [Translated Comment] +0.3%
+  set wage-offer wage-offer * (1 + g)
+  ]
+
+  foreach workers [ w ->
+    ask w [
+      set initial-wage [wage-offer] of myself
+    ]
+  ]
+  set production production-target
+  if production > production-capacity [
+    set production production-capacity
+  ]
+  let avg-cost 0
+  if production > 0 and length workers > 0 [
+    let total-wage wage-offer * length workers
+    let employer-pension-contribution total-wage * (tau-w / 2)
+    set avg-cost (total-wage + employer-pension-contribution + firm-interest-rate * debt) / production ;算上Pension system的平均成本
+  ]
+
+
+  let inventory-ratio ifelse-value (production-target > 0)
+    [ inventories / production-target ]
+    [ 0 ]
+
+  ifelse inventories = 0  and price < previous-market-price [
+    set price price * (1 + random-float price-adjustment)
+  ][
+    if inventories > 0 and price >= previous-market-price [
+      set price price * (1 - random-float price-adjustment )
+    ]
+  ]
+  set price max (list price avg-cost)
+
+end
+
+to labor-market
+  set total-vacancies sum [vacancies] of firms
+  let unemployed-workers households with [age < retirement-age and not employed?]
+  ask unemployed-workers [
+    let M job-application
+    let potential-firms n-of (min list M count firms) firms
+    if is-agent? employer and member? employer firms and [vacancies > 0] of employer [
+      set potential-firms (turtle-set potential-firms employer)
+    ]
+    let best-firm nobody
+    let best-wage 0
+    foreach sort-on [(- wage-offer)] (potential-firms with [vacancies > 0]) [ f ->
+      if [wage-offer] of f > best-wage [
+        set best-wage [wage-offer] of f
+        set best-firm f
+      ]
+    ]
+    if is-agent? best-firm [
+      set employed? true
+      set employer best-firm
+      set contract-end ticks + contract-duration
+      set initial-wage [wage-offer] of best-firm
+      ask best-firm [
+        set workers lput myself workers
+        set vacancies vacancies - 1
+      ]
+    ]
+  ]
+  ask firms [
+    foreach workers [ w ->
+      ask w [
+        set initial-wage [wage-offer] of myself
+      ]
+    ]
+  ]
+end
+
+to update-production-capacity
+  if liquidating? [
+    set production-capacity 0
+    stop
+  ]
+
+  set production-capacity productivity * length workers
+end
+
+to produce
+  if liquidating? [
+    set production 0
+    stop
+  ]
+  set production min (list production-target production-capacity)
+  set inventories inventories + production
+end
+
+
+to apply-for-loan
+  if liquidating? [ set actual-loan 0 stop ]
+
+  set actual-loan 0
+  let wage-bill wage-offer * length workers
+  let employer-pension-contribution wage-bill * (tau-w / 2)
+  let required-labor-payment wage-bill + employer-pension-contribution ;申请贷款的时候要算上给员工缴纳的Pension system
+
+  if cash < required-labor-payment [
+    let loan-request max (list (required-labor-payment - cash) 0)
+    if credit-rating > credit-threshold [
+      set actual-loan loan-request
+      ask one-of banks [
+        set total-loans total-loans + loan-request
+        set loans-portfolio lput (list myself loan-request) loans-portfolio
+      ]
+    ]
+  ]
+end
+
+to check-financial-firing
+  ask firms [
+    if liquidating? [ stop ]
+
+    let wage-bill wage-offer * length workers
+    let employer-pension-contribution wage-bill * (tau-w / 2)
+    let labor-cost wage-bill + employer-pension-contribution
+
+    let can-pay-labor-cost? (cash + actual-loan >= labor-cost)
+
+    if not can-pay-labor-cost? [
+      let desired-workers ceiling (production-target / productivity)
+      let excess-workers length workers - desired-workers
+      if excess-workers > 0 [
+        let workers-to-fire n-of excess-workers workers
+        foreach workers-to-fire [ w ->
+          ask w [
+            set employed? false
+            set employer nobody
+            set contract-end 0
+          ]
+          set workers remove w workers
+        ]
+        set production-capacity productivity * length workers
+      ]
+    ]
+  ]
+end
+
+to age-and-retire
+  set age age + 1
+  set young? age <= youth-age-limit
+  if age >= retirement-age [set color red]
+  if age < retirement-age and age <= youth-age-limit [set color yellow]
+  if age < retirement-age and age > youth-age-limit [set color green]
+  if age >= retirement-age and employed? [
+    set employed? false
+    set employer nobody
+    set contract-end 0
+    set color red
+  ]
+  if employed? and ticks >= contract-end [
+  let old-employer employer
+  set employed? false
+  set employer nobody
+  if is-agent? old-employer [
+    ask old-employer [
+      set workers remove myself workers
+    ]
+  ]
+]
+end
+
+to update-income ; 更新收入（利息+Pension system）
+  let interest-income savings * savings-return-rate
+  ifelse employed? [
+    if is-agent? employer [
+      let current-wage [wage-offer] of employer
+      set income current-wage * (1 - tau-w / 2) + interest-income
+      set lifetime-wages lput current-wage lifetime-wages
+      if length lifetime-wages > (retirement-age) [
+        set lifetime-wages but-first lifetime-wages
+      ]
+    ]
+  ][
+    ifelse age >= retirement-age [
+      ifelse length lifetime-wages > 0 [
+        let avg-lifetime-wage mean lifetime-wages
+        set pension avg-lifetime-wage * pension-replace-scale
+      ][
+        set pension 0
+      ]
+      set income pension + interest-income
+    ][
+
+      set income  interest-income
+
+
+    ]
+  ]
+end
+
+
+to calculate-demand
+  let avg-price mean [price] of firms
+
+  ;; [Translated Comment]
+  let employed-hh households with [employed?]
+  let unemployed-hh households with [not employed? and age < retirement-age]
+  let retired-hh households with [age >= retirement-age]
+
+  ;; [Translated Comment]income-driven[Translated Comment]
+  let emp-income-budget sum [mpc-income-baseline * income] of employed-hh
+  let unemp-income-budget sum [mpc-income-baseline * income] of unemployed-hh
+  let ret-income-budget sum [mpc-income-baseline * income] of retired-hh
+
+  ;; [Translated Comment]wealth-driven[Translated Comment]
+  let emp-wealth-budget sum [mpc-wealth-baseline * savings] of employed-hh
+  let unemp-wealth-budget sum [mpc-wealth-baseline * savings] of unemployed-hh
+  let ret-wealth-budget sum [mpc-wealth-baseline * savings] of retired-hh
+
+
+
+  let total-budget emp-income-budget + unemp-income-budget + ret-income-budget
+                 + emp-wealth-budget + unemp-wealth-budget + ret-wealth-budget
+  set total-demand total-budget / avg-price
+end
+
+
+to goods-market
+  ;set market-price mean [price] of firms
+  ask firms [
+    set sales 0
+    set revenue 0
+  ]
+
+  let shopping-households households with [income > 0 or savings > 0]
+  ask shopping-households [
+
+let wealth-part (ifelse-value (wealth-consumption-cap > 0)
+  [ min list (mpc-wealth-baseline * savings) wealth-consumption-cap ]
+  [ mpc-wealth-baseline * savings ])
+
+let consumption-budget (mpc-income-baseline * income) + wealth-part
+
+    let visited-firms-list []
+    let random-firms n-of (min list (consumer-choice - 1) count firms) firms
+    set visited-firms-list sort random-firms
+    if is-agent? preferred-firm and member? preferred-firm firms [
+      set visited-firms-list lput preferred-firm visited-firms-list
+    ]
+    let sorted-firms sort-by [[a b] -> [price] of a < [price] of b] visited-firms-list
+    let consumed 0
+    let max-sales-firm nobody
+    let max-sales 0
+    foreach sorted-firms [ f ->
+      if is-agent? f [
+        let firm-price [price] of f
+        let firm-inventories [inventories] of f
+        if firm-price > 0 and firm-inventories > 0 [
+          let units-to-buy min list ((consumption-budget - consumed) / firm-price) firm-inventories
+          if units-to-buy > 0 [
+            let purchase-cost units-to-buy * firm-price
+            set consumed consumed + purchase-cost
+            ask f [
+              set sales sales + units-to-buy
+              set revenue revenue + (units-to-buy * price)
+              set inventories inventories - units-to-buy
+              if inventories < 0 [set inventories 0]
+              if sales > max-sales [
+                set max-sales sales
+                set max-sales-firm self
+              ]
+            ]
+          ]
+        ]
+      ]
+    ]
+    set preferred-firm max-sales-firm
+    set actual-consumption consumed
+    set savings savings + income - consumed
+  ]
+  ;; === [Translated Comment]：Transaction-weighted average price ===
+  let total-sales sum [sales] of firms
+  let total-revenue sum [revenue] of firms
+
+  ifelse total-sales > 0
+  [ set market-price total-revenue / total-sales ]   ;; Transaction-weighted average price; firms with larger sales have higher weights, making it closer to actual CPI
+  ;; Transaction-weighted price < simple average price, indicating that low-price firms sell more, consistent with demand elasticity
+  [ set market-price mean [price] of firms ]         ;; Fallback when no transactions occur
+end
+
+to firm-financials
+
+  if liquidating? [
+    ; 只把销售收入加到现金里（goods-market 已经写 revenue）
+    set cash cash + revenue
+    ; debt 不动、工资不动、利息不动
+    stop
+  ]
+
+  set cash cash + actual-loan
+  set debt debt + actual-loan
+  let wage-bill wage-offer * length workers
+  let employer-pension-contribution wage-bill * (tau-w  / 2);; Added: employer pension contribution
+  let interest-payment debt * firm-interest-rate
+  let debt-repayment debt * debt-repayment-rate
+  let total-payment interest-payment + debt-repayment
+  set cash cash + revenue - wage-bill - employer-pension-contribution
+  let cash-before-repayment cash
+  set cash cash - total-payment
+  let missed-this-period 0
+  if cash < 0 [
+    set missed-this-period 1
+    set debt debt - cash
+    set cash 0
+  ]
+  if missed-this-period = 0 [
+    set debt debt - debt-repayment
+    if debt < 0 [set debt 0]
+  ]
+  set payment-record but-first payment-record
+  set payment-record lput missed-this-period payment-record
+  set missed-payments sum payment-record
+  set profits revenue - wage-bill - employer-pension-contribution - interest-payment
+  set equity equity + profits
+
+
+let profit-tax 0
+if profits > 0 [
+  set profit-tax profits * tau-pi
+]
+
+
+  set cash cash - profit-tax
+  if cash >= 0 [
+    ask one-of governments [
+      set tax-income tax-income + profit-tax
+    ]
+  ]
+  if cash < 0 [
+    let paid-tax (profit-tax + cash)
+    ask one-of governments [
+      set tax-income tax-income + paid-tax
+    ]
+    set debt debt - cash
+    set cash 0
+  ]
+;; ===== Balance sheet closure =====
+  ;; ===== Balance sheet closure（Only equity and leverage calculation）=====
+  let inventory-value inventories * price
+  set equity cash + inventory-value - debt
+  set equity max list equity 1e-6  ;; [Translated Comment]max list，[Translated Comment]if[Translated Comment]
+  set leverage debt / equity
+end
+
+to bank-financial-update
+  ask banks [
+    let interest-income sum [debt * firm-interest-rate] of firms
+    let interest-expense sum [savings * savings-return-rate] of households
+    let previous-bad-debt bad-debt
+    let new-bad-debt (bad-debt - previous-bad-debt)
+    set profit interest-income - interest-expense - new-bad-debt
+    set total-loans sum [debt] of firms
+    set total-deposits sum [savings] of households
+
+    ; ── 计算相对初始值的倍数（移入 ask banks 块内）──
+    ifelse initial-total-loans > 0
+      [ set loan-index total-loans / initial-total-loans ]
+      [ set loan-index 0 ]
+  ]
+
+
+end
+
+to update-credit-rating
+  ; 1. Calculate credit rating (unchanged)
+  set credit-rating (Phi - missed-payments) / Phi
+  if credit-rating < 0 [set credit-rating 0]
+  if credit-rating > 1 [set credit-rating 1]
+
+  ; 2. Get current benchmark interest rate
+  let base-rate (item ticks policy-rates) / 100 / 4
+
+  ; 3. Calculate risk premium based on credit rating and leverage
+  let risk-premium 0
+
+  ; Lower credit ratings imply higher risk premiums
+  let credit-factor (1 - credit-rating)  ; 0到1，越高越差
+
+  ; Higher leverage implies higher risk premiums
+  ;let leverage-factor min list (leverage / 3) 1  ;
+let cash-leverage ifelse-value (cash > 0)
+  [ debt / cash ]
+  [ 99 ]  ;; Set to a very large value when no cash is available
+let leverage-factor min list (cash-leverage / 10) 1
+
+  ; Composite risk premium: 0.2% to 4%
+  set risk-premium 0.002 + (credit-factor * 0.015) + (leverage-factor * 0.015) + (random-float 0.008)
+
+  ; 4. Final interest rate = benchmark rate + risk premium
+  set firm-interest-rate base-rate + risk-premium
+
+  ; 5. Set upper and lower bounds
+  set firm-interest-rate min list firm-interest-rate 0.07   ;Upper limit: 7%
+end
+
+to firm-exit-and-entry
+
+  ;; =========================================================
+  ;; 0) [Translated Comment]“[Translated Comment]”[Translated Comment]
+  ;; =========================================================
+  let newly-bankrupt firms with [
+    (not liquidating?) and (credit-rating < default-tolerance)
+  ]
+
+
+
+  set bankruptcies-this-tick count newly-bankrupt  ; 新增：统计本tick新破产数
+
+  ;; =========================================================
+  ;; 1) [Translated Comment] -> [Translated Comment]（[Translated Comment] die、[Translated Comment] globals）
+  ;; =========================================================
+  if any? newly-bankrupt [
+    ask newly-bankrupt [
+
+      ;; 1.1 [Translated Comment]：[Translated Comment] or [Translated Comment]
+      ifelse random-float 1 < reorg-prob
+      [ set will-reorganize? true ]
+      [ set will-reorganize? false ]
+
+      ;; 1.2 [Translated Comment]（[Translated Comment]、[Translated Comment]）
+      foreach workers [ w ->
+        ask w [
+          set employed? false
+          set employer nobody
+          set contract-end 0
+        ]
+      ]
+      set workers []
+      set vacancies 0
+
+      ;; 1.3 [Translated Comment]：[Translated Comment]，[Translated Comment]
+      set liquidating? true
+      set production-target 0
+      set production 0
+      set production-capacity 0
+
+      ;; 1.4 [Translated Comment]：
+      ; 找到正常企业的最低价
+  let active-firms firms with [not liquidating? and credit-rating >= default-tolerance]
+
+  ifelse any? active-firms [
+    let market-low-price min [price] of active-firms
+
+    set price market-low-price  * 0.95  ; 比市场最低价低5%
+  ][
+
+    set price price * 0.5  ; 兜底：如果没有正常企业，打5折
+  ]
+
+
+      ;; 1.5 [Translated Comment]（[Translated Comment]）
+      set actual-loan 0
+    ]
+  ]
+
+  ;; =========================================================
+  ;; 2) [Translated Comment]：[Translated Comment] -> [Translated Comment] -> die [Translated Comment]
+  ;; =========================================================
+  let finished-liquidations firms with [ liquidating? and inventories <= 0 ]
+
+  if any? finished-liquidations [
+
+    ;; 2.1 [Translated Comment]“[Translated Comment]”[Translated Comment]“[Translated Comment]”
+    let firms-to-die finished-liquidations with [ not will-reorganize? ]
+    let firms-to-reorganize finished-liquidations with [ will-reorganize? ]
+
+    ;; ---------------------------------------------------------
+    ;; A) [Translated Comment]：[Translated Comment]，[Translated Comment] die
+    ;; ---------------------------------------------------------
+    if any? firms-to-die [
+      ask firms-to-die [
+        settle-bank-and-record-baddebt
+        die
+      ]
+    ]
+
+    ;; ---------------------------------------------------------
+    ;; B) [Translated Comment]：[Translated Comment]，[Translated Comment]
+    ;; ---------------------------------------------------------
+    if any? firms-to-reorganize [
+      recapitalize-and-reset (turtle-set firms-to-reorganize)
+    ]
+  ]
+
+end
+
+to settle-bank-and-record-baddebt  ;; firm context
+
+  ;; [Translated Comment]：[Translated Comment]，[Translated Comment] cash
+  let total-assets max list cash 0
+  let total-liabilities debt
+
+  let recovery-rate 0
+  if total-liabilities > 0 [
+    set recovery-rate min list 1 (total-assets / total-liabilities)
+  ]
+
+  let recovered debt * recovery-rate
+  let bad debt - recovered
+
+  ask one-of banks [
+    set bad-debt bad-debt + bad
+  ]
+
+  ;; [Translated Comment]（[Translated Comment]）
+  set cash 0
+  set debt 0
+  set equity 0
+end
+
+to recapitalize-and-reset
+
+  [reorg-set]  ;; observer context
+
+  ;; [Translated Comment]：[Translated Comment]“[Translated Comment]”[Translated Comment]
+  let active-firms firms with [ (not liquidating?) and (credit-rating >= default-tolerance) ]
+
+  ;; 1) [Translated Comment]（[Translated Comment]）
+  let target-cash-list []
+  ask reorg-set [
+    let target 100
+    if any? active-firms [ set target [cash] of one-of active-firms ]
+    set target-cash-list lput target target-cash-list
+  ]
+  let total-target sum target-cash-list
+
+  ;; 2) [Translated Comment]
+  let collected 0
+  if total-target > 0 [
+    let total-wealth sum [savings] of households
+    if total-wealth > 0 [
+      let tax-rate min (list (total-target / total-wealth) wealth-tax-cap)
+      ask households [
+        let pay savings * tax-rate
+        set savings savings - pay
+        if savings < 0 [ set savings 0 ]
+        set collected collected + pay
+      ]
+    ]
+  ]
+
+  ;; 3) [Translated Comment]（[Translated Comment]）
+  let ratio 0
+  if total-target > 0 [ set ratio min list 1 (collected / total-target) ]
+
+  ;; 4) [Translated Comment]
+  let idx 0
+  ask reorg-set [
+
+    ;; 4.1 [Translated Comment]（[Translated Comment]）
+    settle-bank-and-record-baddebt
+
+    ;; 4.2 [Translated Comment]（[Translated Comment]）
+    if any? active-firms [
+      let template one-of active-firms
+      set production-target [production-target] of template
+      set production [production] of template
+      set productivity [productivity] of template
+      set wage-offer [wage-offer] of template
+      set price [price] of template
+      let template-kappa [firm-kappa] of template
+      set firm-kappa template-kappa
+    ]
+    if not any? active-firms
+    [
+      set production-target 5
+      set production 0
+      set productivity (1 + random-float 0.05)
+      set wage-offer ini-wage
+      set price ini-price
+    ]
+
+    ;; 4.3 [Translated Comment] = 0（[Translated Comment] + [Translated Comment]）
+    set inventories 0
+
+    ;; 4.4 [Translated Comment]
+    let target item idx target-cash-list
+    let cash-in target * ratio
+    set idx idx + 1
+
+    set cash cash-in
+    set equity cash / (firm-kappa + 1)
+    set debt cash - equity
+    set leverage debt / max list equity 1e-6
+
+    ;; 4.5 [Translated Comment]
+    set credit-rating 1
+    set payment-record n-values phi [0]
+    set missed-payments 0
+    set firm-interest-rate (item ticks policy-rates) / 100 / 4
+    set actual-loan 0
+    set vacancies 0
+
+    ;; 4.6 [Translated Comment]
+    set liquidating? false
+    set will-reorganize? false
+  ]
+
+  ;; 5) [Translated Comment]（[Translated Comment]：[Translated Comment]）
+  ask one-of governments [
+    set recapitalization-tax recapitalization-tax + collected
+    set fiscal-balance fiscal-balance + collected
+  ]
+end
+
+
+
+
+to check-death
+  let bin-index min (list (floor (age / 20)) (length death-prob - 1))
+  let prob item 2 (item bin-index death-prob)
+
+  if random-float 1 < prob or age >= max-lifespan [
+
+    ;; ← [Translated Comment]：[Translated Comment]，[Translated Comment]
+    record-death age
+
+    if employed? and is-agent? employer [
+      ask employer [
+        set workers remove myself workers
+        set production-capacity productivity * length workers
+      ]
+    ]
+    ask one-of governments [
+      set fiscal-balance fiscal-balance + [savings] of myself
+    ]
+    die
+  ]
+end
+
+to record-death [a]
+  let idx min (list (floor (a / 20)) 17)   ;; [Translated Comment]：[Translated Comment] 17（[Translated Comment] 18 [Translated Comment]）
+
+  (ifelse
+    idx = 0  [ set deaths-15-19   deaths-15-19   + 1 ]
+    idx = 1  [ set deaths-20-24   deaths-20-24   + 1 ]
+    idx = 2  [ set deaths-25-29   deaths-25-29   + 1 ]
+    idx = 3  [ set deaths-30-34   deaths-30-34   + 1 ]
+    idx = 4  [ set deaths-35-39   deaths-35-39   + 1 ]
+    idx = 5  [ set deaths-40-44   deaths-40-44   + 1 ]
+    idx = 6  [ set deaths-45-49   deaths-45-49   + 1 ]
+    idx = 7  [ set deaths-50-54   deaths-50-54   + 1 ]
+    idx = 8  [ set deaths-55-59   deaths-55-59   + 1 ]
+    idx = 9  [ set deaths-60-64   deaths-60-64   + 1 ]
+    idx = 10 [ set deaths-65-69   deaths-65-69   + 1 ]
+    idx = 11 [ set deaths-70-74   deaths-70-74   + 1 ]
+    idx = 12 [ set deaths-75-79   deaths-75-79   + 1 ]
+    idx = 13 [ set deaths-80-84   deaths-80-84   + 1 ]
+    idx = 14 [ set deaths-85-89   deaths-85-89   + 1 ]
+    idx = 15 [ set deaths-90-94   deaths-90-94   + 1 ]
+    idx = 16 [ set deaths-95-99   deaths-95-99   + 1 ]
+             [ set deaths-100plus deaths-100plus + 1 ]   ;; idx >= 17
+  )
+end
+
+to add-new-births
+  if ticks mod 4 = 0 [
+    let year-index floor (ticks / 4)
+    if year-index < length birth-rates-list [
+      let annual-births item year-index birth-rates-list
+
+      create-households annual-births [
+        set age 0
+        set young? true
+        set employed? false
+        set income 0
+        set pension 0
+        set lifetime-wages []
+        set savings ini-savings + random-float 1
+        set employer nobody
+        set contract-end 0
+        set preferred-firm nobody
+        set actual-consumption 0
+        set initial-wage 0
+        set young? true
+        setxy random-xcor random-ycor
+        set shape "person"
+        set color yellow
+      ]
+    ]
+  ]
+end
+
+to update-pensions ;  更新Pension system的计算(收取，发放，投资收益)
+
+  let prev-balance [pension-balance] of one-of governments
+
+  let contributors households with [employed? and age < retirement-age]
+
+  ;; ===== 1. [Translated Comment]（[Translated Comment],[Translated Comment] balance [Translated Comment]） =====
+  ;; [Translated Comment]:[Translated Comment],[Translated Comment] balance [Translated Comment],
+  ;; [Translated Comment]"[Translated Comment]"[Translated Comment]。
+  let year-index floor (ticks / 4)
+  if year-index >= 0 and year-index < length pension-annual-returns [
+    let annual-r item year-index pension-annual-returns
+    let quarterly-r (1 + annual-r) ^ 0.25 - 1   ;; [Translated Comment] → [Translated Comment]
+    ask governments [
+      set pension-balance pension-balance * (1 + quarterly-r)
+    ]
+  ]
+
+  ;; ===== 2. [Translated Comment]（[Translated Comment] × [Translated Comment]） =====
+  let total-wage-bill sum [[wage-offer] of employer] of contributors
+  let employee-contributions total-wage-bill * tau-w / 2  ;; [Translated Comment]
+  let employer-contributions total-wage-bill * tau-w / 2  ;; [Translated Comment]
+  let total-contributions employee-contributions + employer-contributions
+  set pension-contributions total-contributions
+
+  ask governments [
+    set pension-balance pension-balance + total-contributions
+    set pension-expenditure 0
+  ]
+
+  ;; ===== 3. [Translated Comment]Pension system[Translated Comment] =====
+  let retirees households with [age >= retirement-age]
+  let total-benefits sum [pension] of retirees
+  set pension-benefits total-benefits
+
+  ask governments [
+    set pension-expenditure total-benefits
+    set pension-balance pension-balance - total-benefits
+  ]
+
+  ;; ===== 4. pension growth =====
+  let new-balance [pension-balance] of one-of governments
+
+  ;; ---- [Translated Comment] ----
+  ifelse prev-balance > 0
+  [
+    set pension-growth (new-balance - prev-balance) / prev-balance
+  ]
+  [
+    set pension-growth 0
+  ]
+
+  ;; ---- [Translated Comment]([Translated Comment]) ----
+  if ticks mod 4 = 3 [
+    ifelse previous-year-pension-balance > 0
+    [
+      set annual-pension-growth
+        (new-balance - previous-year-pension-balance)
+        / previous-year-pension-balance
+    ]
+    [
+      set annual-pension-growth 0
+    ]
+    set previous-year-pension-balance new-balance
+  ]
+
+
+end
+
+
+
+to update-statistics
+  let temp-cpi cpi
+  let young-workers households with [age <= youth-age-limit and age < retirement-age]
+  let old-workers households with [age > youth-age-limit and age < retirement-age]
+  let unemployed-young young-workers with [not employed?]
+  let unemployed-old old-workers with [not employed?]
+  let total-unemployed households with [age < retirement-age and not employed?]
+  set young-unemployment ifelse-value (count young-workers > 0)
+    [count unemployed-young / count young-workers] [0]
+  set old-unemployment ifelse-value (count old-workers > 0)
+    [count unemployed-old / count old-workers] [0]
+  set total-unemployment ifelse-value (count young-workers + count old-workers > 0)
+    [count total-unemployed / (count young-workers + count old-workers)] [0]
+
+  let labour-force count households with [age < retirement-age]
+
+  set vacancy-rate ifelse-value (labour-force > 0)
+    [total-vacancies / labour-force] [0]
+  let n ticks + 1
+  set avg-young-unemployment ((n - 1) * avg-young-unemployment + young-unemployment) / n
+  set avg-old-unemployment ((n - 1) * avg-old-unemployment + old-unemployment) / n
+  let employed-households households with [employed?]
+  set average-wage ifelse-value (count employed-households > 0)
+    [mean [income / (1 - tau-w / 2)] of employed-households] [0]
+  set avg-income mean [income] of households
+  set total-workers count households with [age < retirement-age]
+  set household-count count households
+
+
+  ;; Okun variables
+set gdp-growth 0
+if previous-real-gdp > 0 [
+  set gdp-growth (real-gdp - previous-real-gdp) / previous-real-gdp
+]
+
+set delta-unemployment total-unemployment - previous-unemployment
+
+set previous-real-gdp real-gdp
+set previous-unemployment total-unemployment
+end
+
+to-report tanh [x]
+  ifelse abs x > 20 [
+    report ifelse-value (x > 0) [1] [-1]
+  ] [
+    report (exp(x) - exp(- x)) / (exp(x) + exp(- x))
+  ]
+end
+
+to plot-age-distribution-histogram
+  set-current-plot "Age Distribution"
+  clear-plot
+  set-plot-x-range 0 90
+  set-plot-y-range 0 150
+  set-histogram-num-bars 10
+  let age-list []
+  ask households [
+    let actual-age min list (int (age / 4)) (max-lifespan / 4)
+    set age-list lput actual-age age-list
+  ]
+  histogram age-list
+end
+
+to plot-consumption-by-age-histogram
+  set-current-plot "Avg Consumption by Age Groups"
+  clear-plot
+  set-plot-x-range 0 90
+  set-plot-y-range 0 6
+  set-histogram-num-bars 10
+  let age-avg-consumption-list []
+  let age-bins n-values 10 [0]
+  let age-counts n-values 10 [0]
+  ask households [
+    let age-bin min list (int (age / 40)) 9
+    set age-bins replace-item age-bin age-bins (item age-bin age-bins + actual-consumption)
+    set age-counts replace-item age-bin age-counts (item age-bin age-counts + 1)
+  ]
+  let bin-index 0
+  repeat 10 [
+    let avg-consumption 0
+    if item bin-index age-counts > 0 [
+      set avg-consumption (item bin-index age-bins) / (item bin-index age-counts)
+    ]
+    let weight max list 1 (int (avg-consumption / 5))
+    repeat weight [
+      set age-avg-consumption-list lput (bin-index * 9) age-avg-consumption-list
+    ]
+    set bin-index bin-index + 1
+  ]
+  histogram age-avg-consumption-list
+end
+
+
+
+;may god unite-us-in-heaven
