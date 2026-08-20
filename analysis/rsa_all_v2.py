@@ -11,7 +11,7 @@ warnings.filterwarnings('ignore')
 # 配置
 # ============================================================
 REPO_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR   = os.path.join(REPO_DIR, 'data', 'sensitivity_oat')   # OAT 表都在这
+DATA_DIR   = os.path.join(REPO_DIR, 'data', 'validation')   # OAT 表都在这
 EMP_DIR    = os.path.join(REPO_DIR, 'data', 'empirical')
 OUT_DIR    = os.path.join(REPO_DIR, 'outputs')
 REAL_PATH  = os.path.join(EMP_DIR, 'real-data1.csv')
@@ -62,6 +62,23 @@ def build_paths(param_dict):
         fname = f'1994-2003 {key}-table.csv'
         paths[key] = os.path.join(DATA_DIR, fname)
     return paths
+
+# ============================================================
+# 需要从 OAT 分析中剔除的退化参数水平
+# ============================================================
+# consumer-choices = 1 时模型进入退化状态: 100 次重复的失业率均值高达
+# 71.3%, 但标准差仅 0.0007 (其余水平失业率4~6%, 标准差~0.002-0.003,
+# 处于正常量级)。这一水平的跨重复方差趋近于0, 导致 Cohen's d 的分母
+# (pooled SD) 塌陷, 把 Level d / RMSE d 放大到 -354.59 / -1097.78 这种
+# 失去可比性的数值。这不是代码计算错误, 而是该参数水平把模型推入了
+# 一个近乎确定性的崩溃状态 (消费者搜索强度低于临界值时匹配机制失效)。
+# 故在计算 lowest/highest 时排除该水平, 用现有数据中的下一档 (=2) 作为
+# 新的 lowest —— 不需要重新仿真。该崩溃阈值本身作为定性发现保留在正文
+# 讨论中, 但不再进入效应量主表, 以免误导读者按 0.2/0.5/0.8 的常规阈值
+# 解读这两个数值。
+EXCLUDED_LEVELS = {
+    'consumer-choices': [1],
+}
 
 # ============================================================
 # 读取真实数据
@@ -150,6 +167,16 @@ def compute_effect_sizes(param_dict, group_name):
 
         rdf = pd.read_csv(fpath, skiprows=6)
         actual_param_col = rdf.columns[1]
+
+        # 剔除已知的退化参数水平 (见 EXCLUDED_LEVELS 说明), 不需要重新仿真:
+        # 之后 lowest/highest 会自动取剩余水平里的最小/最大值。
+        excluded = EXCLUDED_LEVELS.get(key, [])
+        if excluded:
+            before_n = len(rdf)
+            rdf = rdf[~rdf[actual_param_col].isin(excluded)]
+            print(f'  ⚠ {display_name}: 剔除退化水平 {excluded} '
+                  f'({before_n - len(rdf)} 行), 原因见 EXCLUDED_LEVELS 注释')
+
         vals = sorted(rdf[actual_param_col].unique())
         lowest, highest = vals[0], vals[-1]
 

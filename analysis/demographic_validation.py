@@ -7,7 +7,7 @@ Generates two figures:
 
 Data inputs (in DATA_DIR):
   - population1994.csv                  (real Japan 1994/2003 age distribution + WDI dep ratio)
-  - real_death_prob.csv                 (Japan 1990-1999 life table, 18 age bins)
+  - real_death_prob.csv                 (Japan/China/India/Finland 1990-1999 life table, 18 age bins each; only Japan is used here)
   - demographic_validation-table.csv    (BehaviorSpace: 18 age counts + 18 death counts per tick)
 
 Outputs (in OUT_DIR):
@@ -81,7 +81,12 @@ print("Loading data...")
 print("=" * 60)
 
 # --- 1a. Real Japan population data ---
+# population1994.csv now has India/China/Finland columns appended after the
+# original Japan block (for the §5.6 counterfactual); keep only the first
+# 10 columns, which are still Japan's 1994/2003 age distribution + WDI
+# dependency ratio in their original order.
 raw = pd.read_csv(POP_FILE, header=1)
+raw = raw.iloc[:, :10]
 raw.columns = ['age_1994', 'total_1994', 'pct_1994',
                '_blank1',
                'age_2003', 'total_2003', 'pct_2003',
@@ -107,7 +112,12 @@ years_real = dep_real_df['year_dep'].values
 dep_real   = dep_real_df['dep_ratio'].values
 
 # --- 1b. Life table (1990-1999, 18 bins) ---
-lt_raw = pd.read_csv(LIFE_FILE, nrows=18).dropna(subset=['age'])
+# real death prob.csv now stacks multiple countries (columns: country, year,
+# age, prob, per tick, in-code age); select Japan's block explicitly rather
+# than relying on row position, since Japan is only one of several countries
+# in the file.
+lt_raw = pd.read_csv(LIFE_FILE)
+lt_raw = lt_raw[lt_raw['country'] == 'Japan'].dropna(subset=['age'])
 lt_raw['prob'] = lt_raw['prob'].astype(float)
 lt_dict = {}
 for _, row in lt_raw.iterrows():
@@ -116,6 +126,7 @@ for _, row in lt_raw.iterrows():
         key = '100+'
     lt_dict[key] = row['prob']
 life_table_annual = np.array([lt_dict[ag] for ag in AGE_GROUPS_18])
+assert len(life_table_annual) == 18, f"Expected 18 Japan age bins, got {len(life_table_annual)}"
 
 # --- 1c. Simulation output (merged) ---
 df = pd.read_csv(SIM_FILE, skiprows=6)

@@ -54,6 +54,13 @@ COL = {
     'leverage':  'median [leverage] of firms',
 }
 
+# ===== 新增：区分"完整数据"(给图1三联图用，可以覆盖到tick 200) 和 "历史窗口数据"(~40 tick，
+# 其余所有图表/拟合统计沿用原来的行为，不受影响) =====
+THEORY_TICK_MIN = 2     # 图1三联图起点(不含)
+THEORY_TICK_MAX = 200   # 图1三联图终点(含)
+df_theory = df[(df[COL['step']] > THEORY_TICK_MIN) & (df[COL['step']] <= THEORY_TICK_MAX)].copy()
+df = df[df[COL['step']] <= 40].copy()
+
 sim = df.groupby(COL['step']).agg(
     unemp_m=(COL['unemp'],'mean'), unemp_s=(COL['unemp'],'std'),
     young_m=(COL['young'],'mean'), young_s=(COL['young'],'std'),
@@ -186,18 +193,18 @@ def band(ax, x, m, s, c):
     ax.fill_between(x, m - s, m + s, color=c, alpha=FALPHA)
 
 # ============================================================
-# 图1: 理论验证三联图 (使用raw数据，不变)
+# 图1: 理论验证三联图 (改为使用 tick 2-200 的长程数据，其余图表不变)
 # ============================================================
-print('\n--- 图1: 理论三联图 ---')
+print('\n--- 图1: 理论三联图 (tick %d-%d) ---' % (THEORY_TICK_MIN+1, THEORY_TICK_MAX))
 fig1, axs1 = plt.subplots(1, 3, figsize=(15, 5))
 fig1.suptitle(
     f'Macroeconomic Regularities — Japan {START_YEAR}–{START_YEAR+9}'
-    f'\n(N = {N_RUNS} runs × 40 ticks)',
+    f'\n(N = {N_RUNS} runs × {THEORY_TICK_MAX-THEORY_TICK_MIN} ticks, tick {THEORY_TICK_MIN+1}-{THEORY_TICK_MAX})',
     fontsize=11, fontweight='bold', y=1.02)
 
-xo = df[COL['delta']].values; yo = df[COL['gdp']].values
-xu = df[COL['unemp']].values; xv = df[COL['vacancy']].values
-xi = df[COL['infl']].values
+xo = df_theory[COL['delta']].values; yo = df_theory[COL['gdp']].values
+xu = df_theory[COL['unemp']].values; xv = df_theory[COL['vacancy']].values
+xi = df_theory[COL['infl']].values
 
 # Okun
 ax = axs1[0]

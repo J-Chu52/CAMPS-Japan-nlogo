@@ -2,7 +2,7 @@
 Section 5.7: Robustness — Scaling Experiment
 
 Tests whether the model's emergent regularities are invariant to the population
-multiplier n* ∈ {1, 2, 4, 8}. Three figures:
+multiplier n* ∈ {1, 2, 4, 8, 16, 32}. Three figures:
 
   Figure 5.7.1: Scale-invariance check
                 Each indicator's end-of-run value vs n*. Bars should be flat
@@ -17,12 +17,12 @@ multiplier n* ∈ {1, 2, 4, 8}. Three figures:
                 for each n*. Visual check that trajectories overlap.
 
 Data input (in DATA_DIR):
-  - scaling-table.csv     (BehaviorSpace: 4 n* × 100 runs × 40 ticks × 13 reporters)
+  - scaling-table-n32.csv   (BehaviorSpace: 6 n* x 100 runs x 40 ticks x 23 reporters)
 
 Outputs (in OUT_DIR):
-  - fig_571_scale_invariance.png
-  - fig_572_cv_scaling.png
-  - fig_573_time_series.png
+  - fig_571_scale_invariance_n32.png
+  - fig_572_cv_scaling_n32.png
+  - fig_573_time_series_n32.png
 """
 
 import os
@@ -35,17 +35,16 @@ from matplotlib.patches import Patch
 # 0. Paths
 # ============================================================
 
-REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(REPO_DIR, 'data', 'validation')
-OUT_DIR  = os.path.join(REPO_DIR, 'outputs')
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_DIR = os.path.dirname(SCRIPT_DIR)                     # CAMPS-Japan/
+DATA_DIR = os.path.join(REPO_DIR, "data", "validation")
+OUT_DIR = os.path.join(REPO_DIR, "outputs")                # 改这里
 os.makedirs(OUT_DIR, exist_ok=True)
 
 SIM_FILE = os.path.join(DATA_DIR, "scaling-table.csv")
-OUT_571  = os.path.join(OUT_DIR, "fig_571_scale_invariance.png")
-OUT_572  = os.path.join(OUT_DIR, "fig_572_cv_scaling.png")
-OUT_573  = os.path.join(OUT_DIR, "fig_573_time_series.png")
-
-os.makedirs(OUT_DIR, exist_ok=True)
+OUT_571 = os.path.join(OUT_DIR, "fig_571_scale_invariance_n32.png")
+OUT_572 = os.path.join(OUT_DIR, "fig_572_cv_scaling_n32.png")
+OUT_573 = os.path.join(OUT_DIR, "fig_573_time_series_n32.png")
 
 # ============================================================
 # 1. Load data
@@ -54,12 +53,22 @@ os.makedirs(OUT_DIR, exist_ok=True)
 df = pd.read_csv(SIM_FILE, skiprows=6)
 
 # Friendly column rename
+# NOTE: the actual BehaviorSpace run reports the built-in `total-unemployment`
+# reporter (not the manually-written "employed? = false and age < retirement-age"
+# expression) — they are mathematically identical (verified against model source),
+# so we just map the column that's actually in the CSV.
+# Likewise there is no `sum [pension] of households with [age >= retirement-age]`
+# column in this run (it is mathematically identical to the `pension-benefits`
+# flow, which wasn't included either); the closest "stock" quantity actually
+# collected is `sum [pension-balance] of governments` — the pension system's
+# reserve fund balance — which we use for the "pension stock" absolute-scaling
+# check instead.
 col_map = {
     'count households with [age >= 200] / count households with [age < 200]':
         'dep_ratio',
     'mean [age] of households / 4':
         'mean_age',
-    'count households with [employed? = false and age < retirement-age] / count households with [age < retirement-age]':
+    'total-unemployment':
         'unemp_rate',
     'mean [price] of firms':
         'price',
@@ -79,15 +88,17 @@ col_map = {
         'n_firms',
     'sum [savings] of households':
         'total_savings',
-    'sum [pension] of households with [age >= retirement-age]':
-        'total_pension',
+    'sum [pension-balance] of governments':
+        'pension_balance',
 }
 df = df.rename(columns=col_map)
 df['n_star'] = df['n*'].astype(int)
 df['run'] = df['[run number]']
 df['step'] = df['[step]']
 
-print(f"Loaded: {df.shape}, n* values: {sorted(df['n_star'].unique())}, "
+N_STARS = sorted(df['n_star'].unique().tolist())
+
+print(f"Loaded: {df.shape}, n* values: {N_STARS}, "
       f"runs per n*: {df.groupby('n_star')['run'].nunique().iloc[0]}")
 
 # ============================================================
@@ -109,13 +120,11 @@ INVARIANT_INDICATORS = [
 
 # Absolute levels (sanity check: should scale linearly with n*)
 ABSOLUTE_INDICATORS = [
-    ('n_households',  'Total households',     'count'),
-    ('n_firms',       'Total firms',          'count'),
-    ('total_savings', 'Total savings',        'level'),
-    ('total_pension', 'Total pension stock',  'level'),
+    ('n_households',    'Total households',       'count'),
+    ('n_firms',         'Total firms',            'count'),
+    ('total_savings',   'Total savings',          'level'),
+    ('pension_balance', 'Pension fund balance',   'level'),
 ]
-
-N_STARS = [1, 2, 4, 8]
 
 # ============================================================
 # Style
@@ -130,10 +139,11 @@ plt.rcParams.update({
     'axes.spines.right': False,
 })
 
-# Color per n* (sequential blue)
-NSTAR_COLORS = {1: '#a6cee3', 2: '#6baed6', 4: '#2171b5', 8: '#08306b'}
+# Color per n* (sequential blue, generated for however many n* values are present)
+_cmap = plt.cm.Blues(np.linspace(0.35, 0.95, len(N_STARS)))
+NSTAR_COLORS = {n: _cmap[i] for i, n in enumerate(N_STARS)}
 INVARIANT_COLOR = '#1f4e79'
-ABSOLUTE_COLOR  = '#aa3939'
+ABSOLUTE_COLOR = '#aa3939'
 
 # ============================================================
 # 2. FIGURE 5.7.1 — Scale invariance check (last tick)
@@ -152,7 +162,7 @@ def panel_invariance(ax, indicator, title, ylabel_unit):
     means = np.array(means)
     stds = np.array(stds)
     x = np.arange(len(N_STARS))
-    
+
     ax.errorbar(x, means, yerr=stds, fmt='o-', color=INVARIANT_COLOR,
                 ecolor='#666666', elinewidth=1, capsize=4,
                 markersize=7, linewidth=1.5)
@@ -160,11 +170,12 @@ def panel_invariance(ax, indicator, title, ylabel_unit):
     ax.set_ylabel(ylabel_unit, fontsize=8.5)
     ax.set_title(title, fontweight='bold', fontsize=9.5)
     ax.grid(axis='y', alpha=0.25, linewidth=0.5); ax.set_axisbelow(True)
-    
-    # Reference line at baseline (n*=4) value
-    baseline_val = means[2]
+
+    # Reference line at baseline (middle n*) value
+    mid_idx = len(N_STARS) // 2
+    baseline_val = means[mid_idx]
     ax.axhline(baseline_val, color='#cccccc', linestyle=':', linewidth=0.8, zorder=0)
-    
+
     # Compute CV across n* (relative spread of means) — measure of invariance
     rel_spread = np.std(means) / np.mean(means) * 100
     ax.text(0.97, 0.05, f'Rel. spread\nof means: {rel_spread:.1f}%',
@@ -202,7 +213,7 @@ INVARIANT_FOR_CV = [(c, t, u) for c, t, u in INVARIANT_INDICATORS
 # Distinct color per indicator
 indicator_colors = plt.cm.tab10(np.linspace(0, 1, len(INVARIANT_FOR_CV)))
 
-# Compute and plot CV normalised to CV(n*=1) so all start at 1
+# Compute and plot CV normalised to CV(n*=min) so all start at 1
 fitted_slopes = []
 for (col, title, _), color in zip(INVARIANT_FOR_CV, indicator_colors):
     cvs = []
@@ -211,7 +222,7 @@ for (col, title, _), color in zip(INVARIANT_FOR_CV, indicator_colors):
         cv = np.std(vals) / abs(np.mean(vals)) * 100 if np.mean(vals) != 0 else 0
         cvs.append(cv)
     cvs = np.array(cvs)
-    cvs_norm = cvs / cvs[0]   # normalise to n*=1
+    cvs_norm = cvs / cvs[0]   # normalise to smallest n*
 
     # Fit slope in log-log space
     slope = np.polyfit(np.log(n_arr), np.log(cvs), 1)[0]
@@ -222,7 +233,7 @@ for (col, title, _), color in zip(INVARIANT_FOR_CV, indicator_colors):
              label=f'{title} (slope = {slope:+.2f})')
 
 # Prominent theoretical reference: 1/sqrt(n*), starting at 1
-ref = 1.0 / np.sqrt(n_arr)
+ref = 1.0 / np.sqrt(n_arr / n_arr[0])
 axA.plot(n_arr, ref, 'k--', linewidth=2.5, alpha=0.7,
          label=r'Theory: $1/\sqrt{n^{*}}$ (slope = $-0.50$)', zorder=10)
 
@@ -231,8 +242,8 @@ axA.set_yscale('log')
 axA.set_xticks(N_STARS)
 axA.set_xticklabels([f'{n}' for n in N_STARS])
 axA.set_xlabel('Population multiplier $n^{*}$')
-axA.set_ylabel(r'CV($n^{*}$) / CV($n^{*}\!=\!1$), log scale')
-axA.set_title(f'A. CV decay — empirical slopes vs $-0.5$ theoretical reference',
+axA.set_ylabel(r'CV($n^{*}$) / CV($n^{*}_{\min}$), log scale')
+axA.set_title('A. CV decay — empirical slopes vs $-0.5$ theoretical reference',
               fontweight='bold')
 axA.legend(loc='lower left', fontsize=7.8, frameon=False)
 axA.grid(alpha=0.25, linewidth=0.5, which='both'); axA.set_axisbelow(True)
@@ -256,18 +267,20 @@ axB = axes2[1]
 
 # Distinct markers per indicator so they remain visible if values coincide
 abs_markers = ['o', 's', '^', 'D']
-abs_colors  = ['#2171b5', '#cc4c02', '#238b45', '#cb181d']
+abs_colors = ['#2171b5', '#cc4c02', '#238b45', '#cb181d']
 
+n_max = N_STARS[-1]
+n_min = N_STARS[0]
 for (col, title, _), marker, color in zip(ABSOLUTE_INDICATORS, abs_markers, abs_colors):
     means = np.array([df_end[df_end['n_star'] == n][col].mean() for n in N_STARS])
-    # Empirical scaling ratio relative to n*=1
+    # Empirical scaling ratio relative to smallest n*
     empirical_ratio = means / means[0]
-    # Theoretical: should equal n*
-    deviation = empirical_ratio / n_arr   # 1.0 means perfect linear scaling
+    # Theoretical: should equal n* / n*_min
+    deviation = empirical_ratio / (n_arr / n_arr[0])   # 1.0 means perfect linear scaling
     axB.plot(n_arr, deviation, marker=marker, linestyle='-',
              color=color, linewidth=1.5, markersize=8,
              markerfacecolor='white', markeredgewidth=1.8,
-             label=f'{title} (n*=8: {means[3]/means[0]:.2f}×)')
+             label=f'{title} (n*={n_max}: {means[-1] / means[0]:.2f}x)')
 
 # Reference line at 1.0 (perfect scaling)
 axB.axhline(1.0, color='k', linestyle='--', linewidth=1.5, alpha=0.6,
@@ -289,7 +302,7 @@ axB.grid(alpha=0.25, linewidth=0.5); axB.set_axisbelow(True)
 all_deviations = []
 for col, _, _ in ABSOLUTE_INDICATORS:
     means = np.array([df_end[df_end['n_star'] == n][col].mean() for n in N_STARS])
-    all_deviations.extend(list((means / means[0]) / n_arr))
+    all_deviations.extend(list((means / means[0]) / (n_arr / n_arr[0])))
 max_dev = max(abs(d - 1) for d in all_deviations) * 100
 axB.text(0.97, 0.97,
          f'Max deviation from\nperfect scaling: {max_dev:.2f}%',
@@ -309,22 +322,18 @@ print(f'Saved: {OUT_572}')
 
 # 4 key indicators: dep ratio, unemployment, price, mean income
 TS_INDICATORS = [
-    ('dep_ratio',       'Old-age dependency ratio'),
-    ('unemp_rate',      'Unemployment rate'),
-    ('price',           'Mean firm price'),
+    ('dep_ratio', 'Old-age dependency ratio'),
+    ('unemp_rate', 'Unemployment rate'),
+    ('price', 'Mean firm price'),
     ('income_employed', 'Mean income (employed)'),
 ]
 
 fig3, axes3 = plt.subplots(2, 2, figsize=(13, 8))
 
-# Apply 4-quarter moving average for smoothing, per (n_star, run), then aggregate
-def smooth_per_run(group, col, window=4):
-    return group[col].rolling(window, min_periods=1).mean()
-
 for ax, (col, title) in zip(axes3.flat, TS_INDICATORS):
     for n in N_STARS:
         sub = df[df['n_star'] == n].copy()
-        # Smooth per run
+        # Smooth per run (4-quarter moving average)
         sub[f'{col}_smooth'] = sub.groupby('run')[col].transform(
             lambda x: x.rolling(4, min_periods=1).mean())
         # Aggregate across runs by step
@@ -332,12 +341,12 @@ for ax, (col, title) in zip(axes3.flat, TS_INDICATORS):
         steps = agg['step'].values
         # Convert ticks to years (tick 1 = 1994 Q1)
         years = 1994 + (steps - 1) / 4
-        
+
         ax.fill_between(years, agg['mean'] - agg['std'], agg['mean'] + agg['std'],
                         color=NSTAR_COLORS[n], alpha=0.18)
         ax.plot(years, agg['mean'], color=NSTAR_COLORS[n], linewidth=1.8,
                 label=f'n* = {n}')
-    
+
     ax.set_xlabel('Year')
     ax.set_ylabel(title)
     ax.set_title(title, fontweight='bold')
@@ -357,17 +366,19 @@ print(f'Saved: {OUT_573}')
 print("\n" + "=" * 60)
 print("Scaling test summary")
 print("=" * 60)
-print(f"{'Indicator':<35s} {'n=1':>10s} {'n=2':>10s} {'n=4':>10s} {'n=8':>10s} {'spread':>8s}")
+header_cols = "".join(f"{'n=' + str(n):>10s}" for n in N_STARS)
+print(f"{'Indicator':<35s} {header_cols} {'spread':>8s}")
 for col, title, _ in INVARIANT_INDICATORS:
     means = [df_end[df_end['n_star'] == n][col].mean() for n in N_STARS]
     spread = np.std(means) / np.mean(means) * 100
     print(f"{title:<35s} " + " ".join(f"{m:>10.4f}" for m in means) + f"  {spread:>6.2f}%")
 
-print(f"\n{'Indicator':<35s} {'n=1':>10s} {'n=2':>10s} {'n=4':>10s} {'n=8':>10s}  {'n=8/n=1':>8s}")
+ratio_header = f"n={n_max}/n={n_min}"
+print(f"\n{'Indicator':<35s} {header_cols}  {ratio_header:>10s}")
 for col, title, _ in ABSOLUTE_INDICATORS:
     means = [df_end[df_end['n_star'] == n][col].mean() for n in N_STARS]
-    ratio = means[3] / means[0]
-    print(f"{title:<35s} " + " ".join(f"{m:>10.2f}" for m in means) + f"  {ratio:>6.2f}×")
-print(f"\n(Perfect linear scaling would give n=8/n=1 = 8.00)")
+    ratio = means[-1] / means[0]
+    print(f"{title:<35s} " + " ".join(f"{m:>10.2f}" for m in means) + f"  {ratio:>8.2f}x")
+print(f"\n(Perfect linear scaling would give n={n_max}/n={n_min} = {n_max / n_min:.2f})")
 
 print("\nDone.")
