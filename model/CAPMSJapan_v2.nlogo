@@ -10,7 +10,6 @@ globals [
   max-lifespan
   contract-duration
   youth-age-limit
-  birth-rate-shift    ;;
 
   ;; ===== 初始化参数 =====
   kappa
@@ -38,11 +37,9 @@ globals [
   savings-return-rate
   policy-rates
 
-  ;; ===== 运行时长控制（新增：区分"历史校准"与"长程理论验证"两种模式） =====
+  ;; ===== 运行时长控制 =====
   max-ticks
-
-  ;; ===== production-target 上限倍数（新增，可在界面调节，见target-cap-multiplier输入框） =====
-  ;target-cap-multiplier
+  theory-burn-in
 
   ;; ===== 时间序列数据（外生输入） =====
   productivity-growth-rates
@@ -110,6 +107,8 @@ globals [
   pension-contributions
   pension-benefits
   pension-balance-history
+  neutral-paygo-base-rate
+  neutral-initial-employment-rate
 
   ;; ===== 其他 =====
   total-demand
@@ -191,7 +190,22 @@ governments-own [
   recapitalization-tax
 ]
 
+to-report theory-neutral-mode?
+  report run-mode = "theory-neutral long run (1000 ticks; burn-in 400)"
+end
+
 to setup
+  ;; ===== Guard: the theory-neutral long run is defined and reported only under
+  ;; the 1994-2003 selection, so that the simulation-period value recorded in
+  ;; BehaviorSpace output is unambiguous. =====
+  if theory-neutral-mode? and simulation-period != "1994-2003" [
+    error (word
+      "Theory check only in period 1994-2003. "
+      "run-mode is set to the theory-neutral long run, but simulation-period is "
+      simulation-period
+      ". Set simulation-period to 1994-2003, or switch run-mode back to historical (40 ticks).")
+  ]
+
   clear-all
 
   set pension-system "PAYGO"
@@ -200,31 +214,37 @@ to setup
   set contract-duration contract-length
   set max-lifespan 360
   set youth-age-limit 40
-  if birth-rate-shift = 0 [ set birth-rate-shift 0 ]
 
-  ;; ===== 新增：run-mode 决定跑多少tick =====
-  ;; "historical (40 ticks)"           -> 严格按1994-2003真实数据校准，逐季对照真实日本数据（原有行为，默认）
-  ;; "long-run theory check (200 ticks)" -> 只用于验证Okun/Phillips/Beveridge等规律是否涌现，
-  ;;                                        tick 40之后外生数据（policy-rates等）自动冻结在2003年最后水平，
-  ;;                                        不代表2004年以后的真实历史，跑完后python脚本里把前面一段(建议200 tick)当burn-in丢弃
-  ifelse run-mode = "long-run theory check (200 ticks)" [
-    set max-ticks 200
+  ;; ===== run-mode decides the experimental horizon =====
+  ;; Historical mode reproduces the selected ten-year Japanese window.
+  ;; Theory-neutral mode starts from a synthetic economy at tick 0; it never
+  ;; replays a Japanese historical path. Ticks 0-399 are warm-up observations.
+  ifelse theory-neutral-mode? [
+    set max-ticks 1000
+    set theory-burn-in 400
   ][
     set max-ticks 40
+    set theory-burn-in 0
   ]
 
 
 
+ifelse theory-neutral-mode? [
+  ;; Do not enter either empirical calibration branch. This makes the neutral
+  ;; experiment independent of simulation-period by construction, rather than
+  ;; loading a Japanese path first and overwriting it afterwards.
+  setup-theory-neutral-configuration
+][
 ifelse member? simulation-period ["1994-2003" "1994-2003 uniform" "1994-2003 India" "1994-2003 China" "1994-2003 Finland"] [
     set household-count 500 * n*
     set firm-count 25 * n*
-    set kappa 1.5                      ;; 初始债务/股权比，1994年日本企业杠杆水平
+    set kappa ini-debt-equity-level    ;; κ0 初始债务/股权比（Table 5），1994年日本企业杠杆水平
     set retirement-age retirement-ages            ;; 模型age 181 = 现实60岁（age 0对应15岁，每tick+1）
-    set buffer-periods 3               ;; 企业初始现金缓冲 = 3期工资账单，1994年适度保守
+    set buffer-periods ini-firm-cash-level  ;; B0 企业初始现金缓冲期数（Table 5），1994年适度保守
     set reserve-years 3.5                ;; 养老金初始储备年数，对应1994年日本年金积立度
     set wealth-consumption-cap 0       ;; 0表示不设财富消费上限，允许household自由动用储蓄
 
-    set initial-inventory-ratio 0.3   ;; 初始库存 = 55%的季度产量，反映泡沫后库存积压
+    set initial-inventory-ratio ini-inventory-level   ;; I0 初始库存比（Table 5），反映泡沫后库存积压
     set reorg-prob        reorganization-prob          ;; 破产企业95%概率重组而非永久死亡，反映日本僵尸企业现象
     set consumer-choice   consumer-choices            ;; 每个消费者每期访问3家企业（含preferred firm）
     set job-application   job-applications            ;; 每个求职者每期申请3家企业
@@ -233,7 +253,7 @@ ifelse member? simulation-period ["1994-2003" "1994-2003 uniform" "1994-2003 Ind
     set ini-wage          1.00         ;; 基准工资，归一化为1
     set ini-productivity  1.00         ;; 初始单位劳动生产率，归一化为1
     set ini-production    ini-production-level         ;; 初始季度产量（单位：工资单位），对应约15-16名工人
-    set ini-savings       ini-wage * 3 ;; 初始储蓄 = 3个季度工资，约0.75年收入
+    set ini-savings       ini-wage * ini-savings-level ;; S0 初始储蓄 = N 个季度工资（Table 5）
     set price-adjustment price-adjustments
 
     set mpc-income-baseline mpc-income
@@ -468,7 +488,7 @@ set age-distributions
         simulation-period = "1994-2003 Finland"   [ [8 8 8 8 8 8 8 7 8 8] ]
         [ [8 7 7 7 7 7 7 6 6 6] ]) ;; 默认 / "1994-2003" / "1994-2003 uniform"：日本 1994
 
-    set birth-rates-list map [ b -> round ((b + birth-rate-shift) * n*) ] base-births
+    set birth-rates-list map [ b -> round ((b + birth-count-shift) * n*) ] base-births
 
     ;; ===== 死亡率（per-tick death prob），按 simulation-period chooser 自动选择，对应各国自己的1990-1999 mx（UN WPP indicator 79 / JMD Mx）=====
     let base-death-prob
@@ -679,7 +699,7 @@ set death-prob map [ row ->
 
 
     let base-births [5 5 5 6 6 6 6 6 6 6]
-    set birth-rates-list map [ b -> round ((b + birth-rate-shift) * n*) ] base-births
+    set birth-rates-list map [ b -> round ((b + birth-count-shift) * n*) ] base-births
 
 
 
@@ -700,6 +720,7 @@ set death-prob map [ row ->
     (min list 1 (max list 0 ((item 2 row) * factor))))
 ] base-death-prob
 
+]
 ]
 
   set bankruptcies-this-tick 0
@@ -779,9 +800,12 @@ create-firms firm-count [
     set savings ini-savings + random-float 1 ;;
     set lifetime-wages []
     if age > 0 [
-  let quarters-worked min list age retirement-age
-  set lifetime-wages n-values quarters-worked [ini-wage * 0.9]
- ]
+      let quarters-worked min list age retirement-age
+      let initial-history-wage ifelse-value theory-neutral-mode?
+        [ ini-wage ]
+        [ ini-wage * 0.9 ]
+      set lifetime-wages n-values quarters-worked [initial-history-wage]
+    ]
 
     set employer nobody
     set contract-end 0
@@ -840,65 +864,55 @@ set nominal-gdp sum [production * price] of firms
 set real-gdp nominal-gdp / (cpi / 100)
 
 
-;; ===================================================
-;; 直接设置初始失业率（1994 Q1 数据）
-;; ===================================================
-
-;; 1. 直接定义初始失业率
-ifelse member? simulation-period ["1994-2003" "1994-2003 uniform" "1994-2003 India" "1994-2003 China" "1994-2003 Finland"] [
-  set initial-young-unemp 5.33
-  set initial-old-unemp   2.46
+;; Historical experiments use observed initial unemployment. The theory-neutral
+;; experiment instead lets firms' initial production plans determine labor demand.
+ifelse theory-neutral-mode? [
+  initialize-theory-employment
 ][
-  set initial-young-unemp 8.73
-  set initial-old-unemp   4.16
-]
-
-;; 2. 转换为就业率
-let initial-young-emp-rate 1 - (initial-young-unemp / 100)
-let initial-old-emp-rate 1 - (initial-old-unemp / 100)
-
-;; 3. 分别处理年轻人和中年人
-let young-workers households with [age < retirement-age and young?]
-let old-workers households with [age < retirement-age and not young?]
-
-  ;; 同时强制退休者状态
-ask households with [age >= retirement-age] [
-  set employed? false
-  set employer nobody
-]
-
-;; 4. 计算需要就业的人数
-let young-to-employ round (count young-workers * initial-young-emp-rate)
-let old-to-employ round (count old-workers * initial-old-emp-rate)
-
-;; 5. 随机选择就业者
-let young-employed n-of young-to-employ young-workers
-let old-employed n-of old-to-employ old-workers
-let all-employed (turtle-set young-employed old-employed)
-
-;; 6. 为就业者分配雇主
-let firms-to-hire firms with [true]
-foreach sort all-employed [ worker ->
-  ask worker [
-    set employed? true
-    let chosen-firm min-one-of firms-to-hire [length workers]
-    set employer chosen-firm
-    set contract-end random contract-duration  ;; 改：直接用随机值，
-    set initial-wage [wage-offer] of chosen-firm
-    ask chosen-firm [
-      set workers lput worker workers
-    ]
+  ifelse member? simulation-period ["1994-2003" "1994-2003 uniform" "1994-2003 India" "1994-2003 China" "1994-2003 Finland"] [
+    set initial-young-unemp 5.33
+    set initial-old-unemp   2.46
+  ][
+    set initial-young-unemp 8.73
+    set initial-old-unemp   4.16
   ]
-]
 
+  let initial-young-emp-rate 1 - (initial-young-unemp / 100)
+  let initial-old-emp-rate 1 - (initial-old-unemp / 100)
+  let young-workers households with [age < retirement-age and young?]
+  let old-workers households with [age < retirement-age and not young?]
 
-  ask firms [
-    foreach workers [ w ->
-      ask w [
-        set initial-wage [wage-offer] of myself
+  ask households with [age >= retirement-age] [
+    set employed? false
+    set employer nobody
+  ]
+
+  let young-to-employ round (count young-workers * initial-young-emp-rate)
+  let old-to-employ round (count old-workers * initial-old-emp-rate)
+  let young-employed n-of young-to-employ young-workers
+  let old-employed n-of old-to-employ old-workers
+  let all-employed (turtle-set young-employed old-employed)
+  let firms-to-hire firms with [true]
+
+  foreach sort all-employed [ worker ->
+    ask worker [
+      set employed? true
+      let chosen-firm min-one-of firms-to-hire [length workers]
+      set employer chosen-firm
+      set contract-end random contract-duration
+      set initial-wage [wage-offer] of chosen-firm
+      ask chosen-firm [
+        set workers lput worker workers
       ]
     ]
   ]
+
+  ask firms [
+    foreach workers [ w ->
+      ask w [ set initial-wage [wage-offer] of myself ]
+    ]
+  ]
+]
 
  ;; ===== 直接初始化 tick 0 的失业率 =====
   let labour-force households with [age < retirement-age]
@@ -948,24 +962,29 @@ ask households with [age >= retirement-age] [
 
 let reserve-quarters reserve-years * 4
 
-;; ===== 初始化 pension-balance =====
-;; 锚定 1994 年日本真实养老金积立金水平（历史给定值）。
-;; 反事实逻辑：假设人口结构不同，但养老金基金规模继承真实历史。
-;; 公式：reserve-quarters × baseline 设计退休人数 × 替代率 × ini-wage × 0.9
-;;   - baseline 设计退休人数 = 119 × n*（1994 真实人口结构）
-;;   - 0.9 来自 setup 中 lifetime-wages 的初值 (ini-wage * 0.9)
-;; baseline 和 uniform 都用这个数，确保从相同的"历史起点"出发。
-let baseline-retirees-count 119 * n*
-let baseline-quarterly-benefits-historical baseline-retirees-count * pension-replace-scale * ini-wage * 0.9
-let historical-pension-balance reserve-quarters * baseline-quarterly-benefits-historical
+;; Historical experiments retain the common 1994 reserve anchor. The neutral
+;; economy initializes reserves from its actual synthetic benefit bill so the
+;; stock and flow assumptions use the same normalized wage history.
+let historical-retirees-count 119 * n*
+let historical-quarterly-benefits-anchor historical-retirees-count * pension-replace-scale * ini-wage * 0.9
+let initial-pension-balance ifelse-value theory-neutral-mode?
+  [ reserve-quarters * baseline-quarterly-benefits ]
+  [ reserve-quarters * historical-quarterly-benefits-anchor ]
 
 ask one-of governments [
   set pension-expenditure sum [pension] of households with [age >= retirement-age]
-  set pension-balance historical-pension-balance
+  set pension-balance initial-pension-balance
 ]
 
   ;; 如果你后面会用 pension-balance-history，也顺手初始化
   set pension-balance-history array:from-list n-values 4 [[pension-balance] of one-of governments]
+
+;; The neutral benchmark determines its constant PAYGO contribution rate from
+;; its own initial wage bill and benefit bill. Historical experiments retain
+;; their observed contribution-rate paths.
+if theory-neutral-mode? [
+  initialize-theory-neutral-pension-rate
+]
 
 
   ;---------------------------------
@@ -994,6 +1013,136 @@ set initial-total-loans sum [debt] of firms
 set previous-year-pension-balance [pension-balance] of one-of governments
 set annual-pension-growth 0
 
+end
+
+to setup-theory-neutral-configuration
+  ;; Synthetic scale and institutions. These values define a generic economy;
+  ;; they are not taken from either Japanese validation window.
+  set household-count round (500 * n*)
+  set firm-count round (25 * n*)
+  ;; Model age 0 corresponds to real age 15. A maximum model age of 280
+  ;; therefore represents a transparent stylized lifespan of 85 years.
+  set max-lifespan 280
+  set retirement-age 200
+  set kappa 0.5
+  set buffer-periods 3
+  set reserve-years 3
+  set wealth-consumption-cap 0
+
+  ;; Positive normalized initial state. Zero values here would eliminate demand,
+  ;; credit, or production and can create divisions by zero during setup.
+  set ini-price 1
+  set ini-wage 1
+  set ini-productivity 1
+  ;; Set initial firm labor demand from the synthetic labor force rather than
+  ;; carrying over an arbitrary production level from an empirical window.
+  set neutral-initial-employment-rate 0.90
+  let neutral-working-age-population household-count * retirement-age / max-lifespan
+  set ini-production
+    neutral-working-age-population * neutral-initial-employment-rate / firm-count * ini-productivity
+  set ini-savings 3
+  set initial-inventory-ratio 0.10
+
+  ;; The same behavioral coefficients used by the empirical model are retained.
+  set reorg-prob reorganization-prob
+  set consumer-choice consumer-choices
+  set job-application job-applications
+  set price-adjustment price-adjustments
+  set mpc-income-baseline mpc-income
+  set mpc-wealth-baseline mpc-wealth
+  set credit-threshold credit-thre
+  set default-tolerance default-tole
+
+  ;; No historical forcing: growth rates are zero and institutional levels are
+  ;; constant from tick 0. Policy-rate entries are annual percentage points.
+  set productivity-growth-rates n-values max-ticks [0]
+  set wage-increase-rates n-values max-ticks [0]
+  set policy-rates n-values max-ticks [0.5]
+  set deposit-rates n-values max-ticks [0]
+  set lend-rates n-values max-ticks [0.5]
+  ;; Filled endogenously after households, employment, and pensions exist.
+  set paygo-rates n-values max-ticks [0]
+  set pension-annual-returns n-values (ceiling (max-ticks / 4)) [0]
+
+  ;; Validation-only observations are deliberately absent in this experiment.
+  set real-rgdp-growth []
+  set real-unemp []
+  set real-young-unemp []
+  set real-old-unemp []
+  set real-pension-growth []
+  set real-inflation []
+
+  ;; A stylized stationary population covers real ages 15--85. Retirement is at
+  ;; 65, so the structural retired/working-age ratio is 20 / 50 = 0.4 rather
+  ;; than the implausible 40 / 50 = 0.8 generated by a lifespan of 105.
+  let age-bin-count ceiling (max-lifespan / 20)
+  let count-per-bin floor (household-count / age-bin-count)
+  ;; `remainder` is a NetLogo primitive reporter, so it cannot be reused as a
+  ;; local variable name.
+  let extra-households household-count - (count-per-bin * age-bin-count)
+  set age-distributions n-values age-bin-count [ i ->
+    (list
+      (i * 20)
+      (min list max-lifespan ((i + 1) * 20))
+      (count-per-bin + ifelse-value (i < extra-households) [1] [0]))
+  ]
+  set birth-rates-list [0]
+  ;; No Japanese mortality table is imported. Agents exit deterministically at
+  ;; age 85; one-for-one entrants preserve the stationary population.
+  set death-prob n-values age-bin-count [ i ->
+    (list (i * 20) (min list max-lifespan ((i + 1) * 20)) 0)
+  ]
+  set initial-young-unemp 0
+  set initial-old-unemp 0
+end
+
+to initialize-theory-employment
+  ;; Employment is initialized from firms' desired labor, not an observed rate.
+  ask households [
+    set employed? false
+    set employer nobody
+    set contract-end 0
+    set initial-wage 0
+  ]
+  ask firms [ set workers [] ]
+
+  let available-workers households with [age < retirement-age]
+  foreach (shuffle (sort firms)) [ f ->
+    let desired-workers max list 0 (ceiling ([production-target] of f / [productivity] of f))
+    let hires min list desired-workers (count available-workers)
+    if hires > 0 [
+      let selected-workers n-of hires available-workers
+      ask selected-workers [
+        set employed? true
+        set employer f
+        set contract-end ifelse-value (contract-duration > 0) [random contract-duration] [0]
+        set initial-wage [wage-offer] of f
+      ]
+      ask f [ set workers sentence workers (sort selected-workers) ]
+      set available-workers available-workers with [not employed?]
+    ]
+  ]
+end
+
+to initialize-theory-neutral-pension-rate
+  ;; Close the initial PAYGO budget using only the synthetic economy itself.
+  ;; The resulting base rate is held constant; later surpluses or deficits are
+  ;; therefore endogenous outcomes rather than mechanically rebalanced flows.
+  let contributors households with [employed? and age < retirement-age]
+  let initial-wage-bill sum [[wage-offer] of employer] of contributors
+  let initial-benefit-bill sum [pension] of households with [age >= retirement-age]
+
+  ifelse initial-wage-bill > 0 [
+    set neutral-paygo-base-rate
+      min list 1 (max list 0 (initial-benefit-bill / initial-wage-bill))
+  ][
+    set neutral-paygo-base-rate 0
+  ]
+
+  set paygo-rates n-values max-ticks [neutral-paygo-base-rate]
+  set tau-w neutral-paygo-base-rate * paygo-rate-scale
+  set pension-contributions initial-wage-bill * tau-w
+  set pension-benefits initial-benefit-bill
 end
 
 to go
@@ -1101,19 +1250,11 @@ to firm-decisions
 
   ifelse inventories = 0 and price >= previous-market-price [
     set production-target production-target * (1 + random-float production-adjustment)
-    ;; 新增：封顶只在long-run模式下生效，historical(40 tick)模式完全保持原始未修改的行为，
-    ;; 不影响1994-2003历史校准/fit_stats那部分已经跑出来的结果
-    if run-mode = "long-run theory check (200 ticks)" [
-      if production-target > production-capacity * target-cap-multiplier [
-        set production-target production-capacity * target-cap-multiplier
-      ]
-    ]
   ][
     if inventories > 0 and price < previous-market-price [
       set production-target production-target * (1 - random-float production-adjustment)
     ]
   ]
-
 
   set production-capacity productivity * length workers
   let desired-workers ceiling (production-target / productivity)
@@ -1823,15 +1964,23 @@ to record-death [a]
 end
 
 to add-new-births
-  if ticks mod 4 = 0 [
-    let year-index floor (ticks / 4)
-    ;; 新增：超过真实历史数据长度(2003年)后，冻结在最后一年(2003)的出生数继续生育，
-    ;; 而不是像原来那样直接完全停止出生——原来的写法会导致tick>40后人口只减不增，
-    ;; 在max-lifespan=360的设定下最终整个households population会灭绝。
-    let clamped-year-index min list year-index (length birth-rates-list - 1)
-    let annual-births item clamped-year-index birth-rates-list
+  let entrants 0
 
-    create-households annual-births [
+  ifelse theory-neutral-mode? [
+    ;; Replace every exit one-for-one. With a uniform initial age structure and
+    ;; zero stochastic mortality this keeps population size and age composition
+    ;; stationary without importing a historical cohort schedule.
+    set entrants max list 0 (household-count - count households)
+  ][
+    if ticks mod 4 = 0 [
+      let year-index floor (ticks / 4)
+      let clamped-year-index min list year-index (length birth-rates-list - 1)
+      set entrants item clamped-year-index birth-rates-list
+    ]
+  ]
+
+  if entrants > 0 [
+    create-households entrants [
       set age 0
       set young? true
       set employed? false
@@ -2049,10 +2198,10 @@ ticks
 30.0
 
 BUTTON
-3
-71
-69
-104
+9
+54
+75
+87
 NIL
 setup
 NIL
@@ -2066,10 +2215,10 @@ NIL
 1
 
 BUTTON
-73
-71
-136
-104
+78
+54
+141
+87
 NIL
 go
 T
@@ -2083,39 +2232,39 @@ NIL
 1
 
 PLOT
-4
-163
-204
-326
+7
+179
+207
+342
 Average Age
 NIL
 NIL
 0.0
 10.0
-25.0
-40.0
+35.0
+70.0
 true
 false
 "" ""
 PENS
-"average age" 1.0 0 -16777216 true "" "plot mean [age] of households / 4"
+"average age" 1.0 0 -16777216 true "" "plot 15 + mean [age] of households / 4"
 
 MONITOR
-114
-267
-201
-312
+117
+283
+204
+328
 Average Age
-mean [age] of households / 4
+15 + mean [age] of households / 4
 2
 1
 11
 
 BUTTON
-140
-71
-203
-104
+145
+54
+208
+87
 NIL
 go
 NIL
@@ -2130,9 +2279,9 @@ NIL
 
 MONITOR
 135
-329
+347
 194
-374
+392
 Retired
 count households with [age >= retirement-age]
 17
@@ -2140,10 +2289,10 @@ count households with [age >= retirement-age]
 11
 
 MONITOR
-13
-329
-70
-374
+14
+347
+71
+392
 Young
 count households with [age <= 80]
 17
@@ -2151,10 +2300,10 @@ count households with [age <= 80]
 11
 
 MONITOR
-74
-329
-132
-374
+75
+347
+133
+392
 old
 count households with [age > 80 and age < retirement-age]
 17
@@ -2281,7 +2430,7 @@ false
 "" ""
 PENS
 "une%" 1.0 0 -12087248 true "" "plot total-unemployment"
-"real" 1.0 0 -955883 true "" "if ticks <= 39 [plot item ticks real-unemp]"
+"real" 1.0 0 -955883 true "" "if ticks < length real-unemp [plot item ticks real-unemp]"
 
 MONITOR
 846
@@ -2322,7 +2471,7 @@ false
 "" ""
 PENS
 "default" 1.0 0 -16777216 true "" "plot (cpi - previous-cpi) / previous-cpi"
-"pen-1" 1.0 0 -955883 true "" "if ticks <= 39 [plot item ticks real-inflation / 100]"
+"pen-1" 1.0 0 -955883 true "" "if ticks < length real-inflation [plot item ticks real-inflation / 100]"
 
 MONITOR
 523
@@ -2340,7 +2489,7 @@ PLOT
 23
 853
 183
-Pension balance
+Cumulative PAYGO balance
 NIL
 NIL
 0.0
@@ -2387,19 +2536,19 @@ MONITOR
 43
 849
 88
-PAYGO Balance
+Cumulative PAYGO balance
 sum [pension-balance] of governments
 2
 1
 11
 
 TEXTBOX
-8
-26
-223
-77
-Run 40 ticks, 10 years in reality
-14
+9
+13
+207
+62
+Historical: 40 ticks; theory-neutral: 1000 ticks (burn-in 400)
+10
 0.0
 1
 
@@ -2415,30 +2564,30 @@ count firms with [credit-rating >= default-tolerance ]
 11
 
 CHOOSER
-4
-113
-204
-158
+7
+92
+207
+137
 simulation-period
 simulation-period
 "1994-2003" "2009-2018" "1994-2003 uniform" "1994-2003 India" "1994-2003 China" "1994-2003 Finland"
-1
-
-CHOOSER
-4
-165
-204
-210
-run-mode
-run-mode
-"historical (40 ticks)" "long-run theory check (200 ticks)"
 0
 
+CHOOSER
+7
+135
+207
+180
+run-mode
+run-mode
+"historical (40 ticks)" "theory-neutral long run (1000 ticks; burn-in 400)"
+1
+
 MONITOR
-13
-379
-195
-424
+14
+397
+196
+442
 Elderly Dependency Ratio*
 count households with [age >= 200] / count households with [age < 200]
 2
@@ -2458,19 +2607,19 @@ count households
 
 TEXTBOX
 15
-427
+444
 195
-482
+499
 *这里elderly的定义是>=65岁。但是实际上1994-2003退休年龄60岁，2009-2018退休年龄65岁。
 11
 0.0
 1
 
 INPUTBOX
-18
-474
-168
-534
+19
+489
+169
+549
 n*
 4.0
 1
@@ -2478,10 +2627,10 @@ n*
 Number
 
 TEXTBOX
-22
-539
-210
-562
+23
+554
+211
+577
 这里的n* 是人口/公司数量放大倍数
 11
 0.0
@@ -2499,10 +2648,10 @@ count households with [age < retirement-age and employed? = true]
 11
 
 PLOT
-7
-615
-207
-765
+8
+620
+208
+770
 total loans
 NIL
 NIL
@@ -2517,10 +2666,10 @@ PENS
 "default" 1.0 0 -16777216 true "" "plot sum [debt] of firms "
 
 MONITOR
-18
-567
-97
-612
+19
+573
+98
+618
 total loans
 sum [debt] of firms
 2
@@ -2576,7 +2725,7 @@ PLOT
 27
 1452
 187
-zombie firms
+loss-making firms
 NIL
 NIL
 0.0
@@ -2587,7 +2736,7 @@ true
 false
 "" ""
 PENS
-"zombie" 1.0 0 -16777216 true "" "plot count firms with [profits < 0]"
+"loss-making" 1.0 0 -16777216 true "" "plot count firms with [profits < 0]"
 
 MONITOR
 215
@@ -2634,10 +2783,10 @@ job-applications
 Number
 
 MONITOR
-114
-567
-196
-612
+115
+573
+197
+618
 NIL
 loan-index
 4
@@ -2699,7 +2848,7 @@ false
 "" ""
 PENS
 "default" 1.0 0 -16777216 true "" "plot gdp-growth"
-"pen-1" 1.0 0 -955883 true "" "if ticks <= 39 [plot item ticks real-rgdp-growth]"
+"pen-1" 1.0 0 -955883 true "" "if ticks < length real-rgdp-growth [plot item ticks real-rgdp-growth]"
 
 INPUTBOX
 1073
@@ -2874,17 +3023,6 @@ production-adjustment
 0
 Number
 
-INPUTBOX
-1430
-733
-1580
-793
-target-cap-multiplier
-1.4
-1
-0
-Number
-
 TEXTBOX
 1597
 208
@@ -2918,10 +3056,10 @@ ini-production-level
 Number
 
 INPUTBOX
-1605
-357
-1755
-417
+1430
+732
+1580
+792
 wealth-tax-cap
 0.1
 1
@@ -3009,7 +3147,7 @@ TEXTBOX
 212
 1611
 235
-Category II (rate-scale) 8
+Category II (rate-scale) 9
 11
 0.0
 1
@@ -3024,10 +3162,55 @@ Category I (rate-scale) 5
 0.0
 1
 
+INPUTBOX
+1605
+357
+1755
+417
+ini-savings-level
+3.0
+1
+0
+Number
+
+INPUTBOX
+1605
+421
+1755
+481
+ini-firm-cash-level
+3.0
+1
+0
+Number
+
+INPUTBOX
+1605
+485
+1755
+545
+ini-inventory-level
+0.3
+1
+0
+Number
+
+INPUTBOX
+1605
+549
+1755
+609
+ini-debt-equity-level
+1.5
+1
+0
+Number
+
 @#$#@#$#@
 ## WHAT IS IT?
 
-(a general understanding of what the model is trying to show or explain)
+An agent-based macroeconomic model with households, firms, a bank, a
+government, labor and goods markets, firm credit, and a PAYGO pension system.
 
 ## HOW IT WORKS
 
@@ -3035,11 +3218,38 @@ Category I (rate-scale) 5
 
 ## HOW TO USE IT
 
-(how to use the model, including a description of each of the items in the Interface tab)
+Choose `historical (40 ticks)` to run either empirical Japanese validation
+window selected under `simulation-period`.
+
+Choose `theory-neutral long run (1000 ticks; burn-in 400)` to test whether the
+model generates internally coherent dynamics without a Japanese historical
+path. In this mode `simulation-period` is ignored. The economy starts from
+positive normalized stocks and prices; exogenous productivity and wage growth,
+Japanese demographic shocks, and pension returns are absent; institutional
+rates remain constant; and initial employment follows firms' labor demand.
+
+The neutral population represents real ages 15--85, with retirement at 65 and
+one-for-one replacement at death. This gives a stationary structural old-age
+dependency ratio of about 0.4. The constant PAYGO base contribution rate is
+calculated at setup so that the synthetic economy's initial contributions equal
+its initial benefits; `paygo-rate-scale` can then perturb that neutral rate.
+Initial firm production is derived from a transparent 90% employment benchmark
+for the synthetic working-age population, rather than an empirical output level.
+
+For replicated results, run the BehaviorSpace experiment
+`theory-neutral-long-run`. It performs 100 reproducible stochastic repetitions
+(random seeds 1--100) and records every tick from 400 through 1000, treating
+ticks 0--399 as burn-in. Use Table output when exporting the results to CSV.
 
 ## THINGS TO NOTICE
 
-(suggested things for the user to notice while running the model)
+The neutral experiment is a pattern-oriented structural test, not a fit to
+Japanese observations. Inspect boundedness, persistence, bankruptcies,
+unemployment, inflation, leverage, population, firm survival, and pension-fund
+solvency across repetitions. Do not interpret a single trajectory as evidence
+of robustness. A negative cumulative PAYGO balance is an unfunded financing
+gap: this version records the gap but does not automatically close it through a
+government subsidy, new debt, a contribution-rate increase, or a benefit cut.
 
 ## THINGS TO TRY
 
@@ -3540,9 +3750,6 @@ NetLogo 6.4.0
     <enumeratedValueSet variable="contract-length">
       <value value="20"/>
     </enumeratedValueSet>
-    <enumeratedValueSet variable="target-cap-multiplier">
-      <value value="1.4"/>
-    </enumeratedValueSet>
     <enumeratedValueSet variable="credit-memory-window">
       <value value="20"/>
     </enumeratedValueSet>
@@ -3655,9 +3862,6 @@ NetLogo 6.4.0
     <enumeratedValueSet variable="contract-length">
       <value value="20"/>
     </enumeratedValueSet>
-    <enumeratedValueSet variable="target-cap-multiplier">
-      <value value="1.4"/>
-    </enumeratedValueSet>
     <enumeratedValueSet variable="credit-memory-window">
       <value value="20"/>
     </enumeratedValueSet>
@@ -3689,7 +3893,236 @@ NetLogo 6.4.0
       <value value="1"/>
     </enumeratedValueSet>
   </experiment>
-  <experiment name="default tolerance" repetitions="100" runMetricsEveryStep="false">
+  <experiment name="theory-neutral-long-run" repetitions="100" sequentialRunOrder="false" runMetricsEveryStep="true">
+    <setup>random-seed behaviorspace-run-number
+setup</setup>
+    <go>go</go>
+    <metric>ticks</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>nominal-gdp</metric>
+    <metric>real-gdp</metric>
+    <metric>sum [production] of firms</metric>
+    <metric>sum [sales] of firms</metric>
+    <metric>sum [inventories] of firms</metric>
+    <metric>total-demand</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [debt] of firms</metric>
+    <metric>sum [bad-debt] of banks</metric>
+    <metric>sum [profit] of banks</metric>
+    <metric>count firms with [profits &lt; 0]</metric>
+    <metric>ifelse-value any? firms [median [leverage] of firms] [0]</metric>
+    <metric>ifelse-value any? firms [mean [price] of firms] [0]</metric>
+    <metric>ifelse-value any? firms [mean [productivity] of firms] [0]</metric>
+    <metric>ifelse-value any? firms [mean [wage-offer] of firms] [0]</metric>
+    <metric>count households</metric>
+    <metric>count households with [age &lt; retirement-age]</metric>
+    <metric>count households with [employed? and age &lt; retirement-age]</metric>
+    <metric>count households with [not employed? and age &lt; retirement-age]</metric>
+    <metric>count households with [age &gt;= retirement-age]</metric>
+    <metric>15 + ifelse-value (any? households) [(mean [age] of households / 4)] [0]</metric>
+    <metric>ifelse-value (any? households with [age &lt; retirement-age]) [(count households with [age &gt;= retirement-age]) / (count households with [age &lt; retirement-age])] [0]</metric>
+    <metric>count firms</metric>
+    <metric>count firms with [not liquidating?]</metric>
+    <metric>count firms with [not liquidating? and credit-rating &gt;= credit-threshold]</metric>
+    <metric>sum [savings] of households</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>pension-contributions</metric>
+    <metric>pension-benefits</metric>
+    <metric>pension-contributions - pension-benefits</metric>
+    <metric>ifelse-value (pension-benefits &gt; 0) [pension-contributions / pension-benefits] [0]</metric>
+    <metric>neutral-paygo-base-rate</metric>
+    <metric>tau-w</metric>
+    <metric>neutral-initial-employment-rate</metric>
+    <runMetricsCondition>ticks &gt;= theory-burn-in and ticks &lt;= max-ticks</runMetricsCondition>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;theory-neutral long run (1000 ticks; burn-in 400)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="n*">
+      <value value="4"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="profit-tax-rate">
+      <value value="0.05"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="mpc-income">
+      <value value="0.85"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="mpc-wealth">
+      <value value="0.05"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="consumer-choices">
+      <value value="4"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="job-applications">
+      <value value="4"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="reorganization-prob">
+      <value value="0.95"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="credit-thre">
+      <value value="0.4"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="default-tole">
+      <value value="0.3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="debt-repayment-rate">
+      <value value="0.03"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="contract-length">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="credit-memory-window">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="price-adjustments">
+      <value value="0.01"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="production-adjustment">
+      <value value="0.01"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="wealth-tax-cap">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="pension-replace-scale">
+      <value value="0.6"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="paygo-rate-scale">
+      <value value="1"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 birth-count-shift" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="birth-count-shift">
+      <value value="-2"/>
+      <value value="-1"/>
+      <value value="1"/>
+      <value value="2"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 lend-rate-shift" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="lend-rate-shift">
+      <value value="-0.15"/>
+      <value value="-0.05"/>
+      <value value="0.05"/>
+      <value value="0.15"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 deposit-rate-shift" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="deposit-rate-shift">
+      <value value="-0.1"/>
+      <value value="-0.05"/>
+      <value value="0.05"/>
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 credit-thre" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="credit-thre">
+      <value value="0.2"/>
+      <value value="0.3"/>
+      <value value="0.5"/>
+      <value value="0.6"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 default-tole" repetitions="100" runMetricsEveryStep="false">
     <setup>setup</setup>
     <go>go</go>
     <metric>mean [age] of households / 4</metric>
@@ -3713,8 +4146,45 @@ NetLogo 6.4.0
       <value value="0.4"/>
       <value value="0.5"/>
     </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
   </experiment>
-  <experiment name="consumer choices" repetitions="100" sequentialRunOrder="false" runMetricsEveryStep="false">
+  <experiment name="1994-2003 debt-repayment-rate" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="debt-repayment-rate">
+      <value value="0.01"/>
+      <value value="0.02"/>
+      <value value="0.04"/>
+      <value value="0.05"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 consumer-choices" repetitions="100" runMetricsEveryStep="false">
     <setup>setup</setup>
     <go>go</go>
     <metric>mean [age] of households / 4</metric>
@@ -3738,8 +4208,14 @@ NetLogo 6.4.0
       <value value="5"/>
       <value value="6"/>
     </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
   </experiment>
-  <experiment name="job applications" repetitions="100" runMetricsEveryStep="false">
+  <experiment name="1994-2003 job-applications" repetitions="100" runMetricsEveryStep="false">
     <setup>setup</setup>
     <go>go</go>
     <metric>mean [age] of households / 4</metric>
@@ -3762,6 +4238,446 @@ NetLogo 6.4.0
       <value value="3"/>
       <value value="5"/>
       <value value="6"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 retirement-ages" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="retirement-ages">
+      <value value="169"/>
+      <value value="177"/>
+      <value value="185"/>
+      <value value="193"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 death-prob-shift" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="death-prob-shift">
+      <value value="0.75"/>
+      <value value="0.9"/>
+      <value value="1.1"/>
+      <value value="1.25"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 productivity-growth-scale" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="productivity-growth-scale">
+      <value value="0.75"/>
+      <value value="0.9"/>
+      <value value="1.1"/>
+      <value value="1.25"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 wage-growth-scale" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="wage-growth-scale">
+      <value value="0.75"/>
+      <value value="0.9"/>
+      <value value="1.1"/>
+      <value value="1.25"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 pension-replace-scale" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="pension-replace-scale">
+      <value value="0.45"/>
+      <value value="0.54"/>
+      <value value="0.66"/>
+      <value value="0.75"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 paygo-rate-scale" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="paygo-rate-scale">
+      <value value="0.75"/>
+      <value value="0.9"/>
+      <value value="1.1"/>
+      <value value="1.25"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 mpc-income" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="mpc-income">
+      <value value="0.6375"/>
+      <value value="0.765"/>
+      <value value="0.935"/>
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 mpc-wealth" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="mpc-wealth">
+      <value value="0.0375"/>
+      <value value="0.045"/>
+      <value value="0.055"/>
+      <value value="0.0625"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 reorganization-prob" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="reorganization-prob">
+      <value value="0.7125"/>
+      <value value="0.855"/>
+      <value value="0.975"/>
+      <value value="0.99"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 profit-tax-rate" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="profit-tax-rate">
+      <value value="0.0375"/>
+      <value value="0.045"/>
+      <value value="0.055"/>
+      <value value="0.0625"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 credit-memory-window" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="credit-memory-window">
+      <value value="15"/>
+      <value value="18"/>
+      <value value="22"/>
+      <value value="25"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 contract-length" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="contract-length">
+      <value value="15"/>
+      <value value="18"/>
+      <value value="22"/>
+      <value value="25"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 price-adjustment" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="price-adjustments">
+      <value value="0.0075"/>
+      <value value="0.009"/>
+      <value value="0.011"/>
+      <value value="0.0125"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="1994-2003 production-adjustment" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>mean [age] of households / 4</metric>
+    <metric>count households with [age &gt;= 200] / count households with [age &lt; 200]</metric>
+    <metric>total-unemployment</metric>
+    <metric>delta-unemployment</metric>
+    <metric>young-unemployment</metric>
+    <metric>old-unemployment</metric>
+    <metric>Inflation</metric>
+    <metric>vacancy-rate</metric>
+    <metric>gdp-growth</metric>
+    <metric>loan-index</metric>
+    <metric>bankruptcies-this-tick</metric>
+    <metric>sum [pension-balance] of governments</metric>
+    <metric>annual-pension-growth</metric>
+    <metric>median [leverage] of firms</metric>
+    <runMetricsCondition>ticks &gt;= 1</runMetricsCondition>
+    <enumeratedValueSet variable="production-adjustment">
+      <value value="0.0075"/>
+      <value value="0.009"/>
+      <value value="0.011"/>
+      <value value="0.0125"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="run-mode">
+      <value value="&quot;historical (40 ticks)&quot;"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="simulation-period">
+      <value value="&quot;1994-2003&quot;"/>
     </enumeratedValueSet>
   </experiment>
 </experiments>

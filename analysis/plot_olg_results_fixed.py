@@ -13,10 +13,10 @@ Usage:
     python plot_olg_results.py path/to/your-csv.csv   # override input
 
 Outputs:
-    fig_demographic_setup.png - Panels A-E: population pyramids for all 5 scenarios.
+    fig10_olg_demographic_setup.png - Panels A-E: population pyramids for all 5 scenarios.
                                  Panel F: dependency ratio evolution, 1994-2003.
-    fig1_pension_core.png     - Core OLG necessity evidence (1995-2002, 4 subplots)
-    fig3_macro.png            - Macroeconomic outcomes (3 subplots, no loan index)
+    fig11_olg_pension.png     - Core OLG necessity evidence (1995-2002, 4 subplots)
+    fig12_olg_macro.png            - Macroeconomic outcomes (3 subplots, no loan index)
 """
 
 import sys
@@ -278,9 +278,9 @@ def plot_demographic_setup(df):
     fig.legend(handles=legend_elements, loc='lower center', ncol=2, bbox_to_anchor=(0.5, 0.0),
                frameon=False, fontsize=9)
 
-    plt.savefig(f'{OUTPUT_DIR}/fig_demographic_setup.png', bbox_inches='tight')
+    plt.savefig(f'{OUTPUT_DIR}/fig10_olg_demographic_setup.png', bbox_inches='tight')
     plt.close()
-    print('  Saved fig_demographic_setup.png')
+    print('  Saved fig10_olg_demographic_setup.png')
 
 
 # ============================================================
@@ -374,9 +374,9 @@ def plot_pension_core(df):
     handles, labels_legend = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels_legend, loc='lower center', ncol=3,
                bbox_to_anchor=(0.5, 0.0), frameon=False)
-    plt.savefig(f'{OUTPUT_DIR}/fig1_pension_core.png', bbox_inches='tight')
+    plt.savefig(f'{OUTPUT_DIR}/fig11_olg_pension.png', bbox_inches='tight')
     plt.close()
-    print('  Saved fig1_pension_core.png')
+    print('  Saved fig11_olg_pension.png')
 
 
 # ============================================================
@@ -402,9 +402,9 @@ def plot_macro(df):
     handles, labels_legend = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels_legend, loc='lower center', ncol=3,
                bbox_to_anchor=(0.5, 0.0), frameon=False)
-    plt.savefig(f'{OUTPUT_DIR}/fig3_macro.png', bbox_inches='tight')
+    plt.savefig(f'{OUTPUT_DIR}/fig12_olg_macro.png', bbox_inches='tight')
     plt.close()
-    print('  Saved fig3_macro.png')
+    print('  Saved fig12_olg_macro.png')
 
 
 # ============================================================

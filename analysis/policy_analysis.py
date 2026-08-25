@@ -231,15 +231,15 @@ def main():
     for c in ["Unemployment", "GDP_growth", "Pension_growth",
               "Inflation_mean", "Inflation_sd"]:
         out[c] = (out[c] * 100).round(3)
-    csv_out = os.path.join(OUT_DIR, "my_feasible_policies.csv")
+    csv_out = os.path.join(OUT_DIR, "tab17_feasible_policies.csv")
     out.to_csv(csv_out, index=False)
     print(f"  已保存清单：{csv_out}")
 
     # 画两张图（同时存文件）
     fig1 = plot_distribution(feasible, cell,
-                             os.path.join(OUT_DIR, "my_feasible_distribution.png"))
+                             os.path.join(OUT_DIR, "fig19_feasible_distribution.png"))
     fig2 = plot_vs_baseline(feasible, base,
-                            os.path.join(OUT_DIR, "my_feasible_vs_baseline.png"))
+                            os.path.join(OUT_DIR, "fig20_feasible_unemployment.png"))
 
     # 打印最优解
     if len(feasible) > 0:

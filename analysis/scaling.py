@@ -20,9 +20,9 @@ Data input (in DATA_DIR):
   - scaling-table-n32.csv   (BehaviorSpace: 6 n* x 100 runs x 40 ticks x 23 reporters)
 
 Outputs (in OUT_DIR):
-  - fig_571_scale_invariance_n32.png
-  - fig_572_cv_scaling_n32.png
-  - fig_573_time_series_n32.png
+  - fig13_scaling_invariance.png
+  - fig14_scaling_cv_totals.png
+  - fig15_scaling_trajectories.png
 """
 
 import os
@@ -42,9 +42,9 @@ OUT_DIR = os.path.join(REPO_DIR, "outputs")                # 改这里
 os.makedirs(OUT_DIR, exist_ok=True)
 
 SIM_FILE = os.path.join(DATA_DIR, "scaling-table.csv")
-OUT_571 = os.path.join(OUT_DIR, "fig_571_scale_invariance_n32.png")
-OUT_572 = os.path.join(OUT_DIR, "fig_572_cv_scaling_n32.png")
-OUT_573 = os.path.join(OUT_DIR, "fig_573_time_series_n32.png")
+OUT_571 = os.path.join(OUT_DIR, "fig13_scaling_invariance.png")
+OUT_572 = os.path.join(OUT_DIR, "fig14_scaling_cv_totals.png")
+OUT_573 = os.path.join(OUT_DIR, "fig15_scaling_trajectories.png")
 
 # ============================================================
 # 1. Load data

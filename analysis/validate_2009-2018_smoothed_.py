@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 from matplotlib.colors import TwoSlopeNorm
 from scipy import stats
-from scipy.optimize import curve_fit
 import os
 import warnings
 warnings.filterwarnings('ignore')
@@ -58,11 +57,6 @@ COL = {
     'leverage':  'median [leverage] of firms',
 }
 
-# ===== 区分"长周期理论数据"(图1三联图用, tick 3-200) 和 "历史窗口数据"(tick 1-40,
-# 图2/图3/拟合统计用)。与 validate_1994-2003_smoothed.py 保持一致的口径。 =====
-THEORY_TICK_MIN = 2     # 图1三联图起点(不含) -> 实际从 tick 3 开始
-THEORY_TICK_MAX = 200   # 图1三联图终点(含)
-df_theory = df[(df[COL['step']] > THEORY_TICK_MIN) & (df[COL['step']] <= THEORY_TICK_MAX)].copy()
 df = df[df[COL['step']] <= 40].copy()
 
 sim = df.groupby(COL['step']).agg(
@@ -200,66 +194,6 @@ def band(ax, x, m, s, c):
     ax.fill_between(x, m - s, m + s, color=c, alpha=FALPHA)
 
 # ============================================================
-# 图1: 理论验证三联图 (使用 tick 3-200 的长周期数据)
-# ============================================================
-print('\n--- 图1: 理论三联图 (tick %d-%d) ---' % (THEORY_TICK_MIN+1, THEORY_TICK_MAX))
-fig1, axs1 = plt.subplots(1, 3, figsize=(15, 5))
-fig1.suptitle(
-    f'Macroeconomic Regularities — Japan {START_YEAR}–{START_YEAR+9}'
-    f'\n(N = {N_RUNS} runs × {THEORY_TICK_MAX-THEORY_TICK_MIN} ticks, tick {THEORY_TICK_MIN+1}-{THEORY_TICK_MAX})',
-    fontsize=11, fontweight='bold', y=1.02)
-
-xo = df_theory[COL['delta']].values; yo = df_theory[COL['gdp']].values
-xu = df_theory[COL['unemp']].values; xv = df_theory[COL['vacancy']].values
-xi = df_theory[COL['infl']].values
-
-# Okun
-ax = axs1[0]
-hb = ax.hexbin(xo, yo, gridsize=HG, cmap=DCMAP, mincnt=1, linewidths=0.2, alpha=0.85)
-sl, ic, r, *_ = stats.linregress(xo, yo)
-xf = np.linspace(xo.min(), xo.max(), 200)
-ax.plot(xf, sl*xf+ic, color=REAL_C, lw=2, zorder=5,
-        label=f'Fit: slope = {sl:.3f}\n$R^2$ = {r**2:.3f}')
-ax.set_xlabel('Δ Unemployment Rate'); ax.set_ylabel('GDP Growth')
-ax.set_title("Okun's Law", fontweight='bold')
-ax.legend(fontsize=8, framealpha=0.9, edgecolor='#CCC')
-fig1.colorbar(hb, ax=ax, fraction=0.046, pad=0.02).set_label('Count', fontsize=8)
-
-# Beveridge
-ax = axs1[1]
-hb = ax.hexbin(xu, xv, gridsize=HG, cmap=DCMAP, mincnt=1, linewidths=0.2, alpha=0.85)
-def expf(x, a, b): return a * np.exp(b * x)
-try:
-    po, _ = curve_fit(expf, xu, xv, p0=[0.1, -1.5], maxfev=5000)
-    xf2 = np.linspace(xu.min(), xu.max(), 200)
-    ax.plot(xf2, expf(xf2, *po), color=REAL_C, lw=2, zorder=5,
-            label=f'Exp fit: $y={po[0]:.3f}\\,e^{{{po[1]:.3f}x}}$')
-except:
-    sl2, ic2, *_ = stats.linregress(xu, xv)
-    xf2 = np.linspace(xu.min(), xu.max(), 200)
-    ax.plot(xf2, sl2*xf2+ic2, color=REAL_C, lw=2, zorder=5)
-ax.set_xlabel('Unemployment Rate'); ax.set_ylabel('Vacancy Rate')
-ax.set_title('Beveridge Curve', fontweight='bold')
-ax.legend(fontsize=8, framealpha=0.9, edgecolor='#CCC')
-fig1.colorbar(hb, ax=ax, fraction=0.046, pad=0.02).set_label('Count', fontsize=8)
-
-# Phillips
-ax = axs1[2]
-hb = ax.hexbin(xu, xi, gridsize=HG, cmap=DCMAP, mincnt=1, linewidths=0.2, alpha=0.85)
-sl3, ic3, r3, *_ = stats.linregress(xu, xi)
-xf3 = np.linspace(xu.min(), xu.max(), 200)
-ax.plot(xf3, sl3*xf3+ic3, color=REAL_C, lw=2, zorder=5,
-        label=f'Fit: slope = {sl3:.3f}\n$R^2$ = {r3**2:.3f}')
-ax.set_xlabel('Unemployment Rate'); ax.set_ylabel('Inflation Rate')
-ax.set_title('Phillips Curve', fontweight='bold')
-ax.legend(fontsize=8, framealpha=0.9, edgecolor='#CCC')
-fig1.colorbar(hb, ax=ax, fraction=0.046, pad=0.02).set_label('Count', fontsize=8)
-
-fig1.tight_layout()
-fig1.savefig(f'{OUT_DIR}/{EXP_NAME}_fig1_theory.png', dpi=180, bbox_inches='tight')
-print('✓ 图1')
-
-# ============================================================
 # 图2 (主图): 模拟vs真实 四联图 — GDP/Inflation/Unemployment 用 4Q MA
 # ============================================================
 print('\n--- 图2: 模拟 vs 真实 四联图 (季度变量: 4Q MA) ---')
@@ -360,7 +294,7 @@ ax.set_xticks(tick_pos)
 ax.set_xticklabels([q_labels[i] for i in tick_pos], rotation=45, ha='right', fontsize=8)
 
 fig2.tight_layout()
-fig2.savefig(f'{OUT_DIR}/{EXP_NAME}_fig2_comparison.png', dpi=180, bbox_inches='tight')
+fig2.savefig(f'{OUT_DIR}/fig09_outofsample_fit_2009-2018.png', dpi=180, bbox_inches='tight')
 print('✓ 图2 (主图, 4Q MA)')
 
 # ============================================================
@@ -420,7 +354,7 @@ ax.set_xticks(tick_pos)
 ax.set_xticklabels([q_labels[i] for i in tick_pos], rotation=45, ha='right', fontsize=8)
 
 fig2r.tight_layout()
-fig2r.savefig(f'{OUT_DIR}/{EXP_NAME}_fig2_comparison_raw.png', dpi=180, bbox_inches='tight')
+fig2r.savefig(f'{OUT_DIR}/si_fig09_outofsample_fit_raw.png', dpi=180, bbox_inches='tight')
 print('✓ 图2附录 (raw, 备查)')
 
 # ============================================================
@@ -446,7 +380,7 @@ for ax, (sm, ss, title) in zip(axs3, fin_cfg):
     ax.grid(True, alpha=0.2, ls='--')
 
 fig3.tight_layout()
-fig3.savefig(f'{OUT_DIR}/{EXP_NAME}_fig3_financial.png', dpi=180, bbox_inches='tight')
+fig3.savefig(f'{OUT_DIR}/si_financial_2009-2018.png', dpi=180, bbox_inches='tight')
 print('✓ 图3')
 
 # ============================================================
@@ -509,7 +443,7 @@ fit_rows.append(fit_stats(q_sim_unemp_sm, q_real_unemp_sm, 'Unemployment (4Q MA)
 fit_rows.append(fit_stats(pen_sim,        pen_real,        'Pension (annual)'))
 
 fit_table = pd.DataFrame(fit_rows)
-fit_table.to_csv(f'{OUT_DIR}/{EXP_NAME}_fit_stats.csv', index=False, encoding='utf-8-sig')
+fit_table.to_csv(f'{OUT_DIR}/tab12_fit_stats_2009-2018.csv', index=False, encoding='utf-8-sig')
 print('\nFit statistics:')
 print(fit_table.to_string(index=False))
 print('\n显著性: * p<0.05, ** p<0.01, *** p<0.001')

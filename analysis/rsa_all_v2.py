@@ -18,6 +18,10 @@ REAL_PATH  = os.path.join(EMP_DIR, 'real-data1.csv')
 os.makedirs(OUT_DIR, exist_ok=True)
 
 EXP_NAME   = '1994-2003'
+
+# 输出名直接对应论文编号：Figure 17/18, Table 15/16
+OUT_LABEL  = {'count_shift': ('fig16_oat_count_shift', 'tab15_oat_count_shift'),
+              'rate_scale':  ('fig17_oat_rate_scale',  'tab16_oat_rate_scale')}
 START_YEAR = 1994
 QUARTERLY_BURNIN = 2
 N_RUNS = 100
@@ -27,7 +31,7 @@ N_RUNS = 100
 # ============================================================
 # Count-Shift 组 (9 个参数: 离散位移/计数型/利率位移)
 COUNT_SHIFT_PARAMS = {
-    'birth-rate-shift':       ('birth-rate-shift',     'Birth Rate Shift'),
+    'birth-count-shift':       ('birth-count-shift',     'Birth Count Shift'),
     'lend-rate-shift':        ('lend-rate-shift',      'Lend Rate Shift'),
     'deposit-rate-shift':     ('deposit-rate-shift',   'Deposit Rate Shift'),
     'consumer-choices':       ('consumer-choices',     'Consumer Choices'),
@@ -273,7 +277,7 @@ def plot_heatmap_pair(level_d, rmse_d, names_ordered, display_ordered, group_nam
         ax.set_title(f'{title}\n{subtitle}', fontweight='bold', fontsize=10)
 
     fig.tight_layout()
-    out_path = f'{OUT_DIR}/{EXP_NAME}_rsa_{file_suffix}_effect.png'
+    out_path = f'{OUT_DIR}/{OUT_LABEL[file_suffix][0]}.png'
     fig.savefig(out_path, dpi=180, bbox_inches='tight')
     print(f'  ✓ 保存: {os.path.basename(out_path)}')
     return level_matrix, rmse_matrix
@@ -292,7 +296,7 @@ def save_csv_tables(level_d, rmse_d, names_ordered, display_ordered, file_suffix
             row[mn.replace('Mean ', '')] = f'{d:+.2f} ({mag})'
         level_rows.append(row)
     level_table = pd.DataFrame(level_rows)
-    level_table.to_csv(f'{OUT_DIR}/{EXP_NAME}_rsa_{file_suffix}_level_table.csv',
+    level_table.to_csv(f'{OUT_DIR}/{OUT_LABEL[file_suffix][1]}_level.csv',
                        index=False, encoding='utf-8-sig')
 
     rmse_rows = []
@@ -304,7 +308,7 @@ def save_csv_tables(level_d, rmse_d, names_ordered, display_ordered, file_suffix
             row[mn] = f'{d:+.2f} ({mag})'
         rmse_rows.append(row)
     rmse_table = pd.DataFrame(rmse_rows)
-    rmse_table.to_csv(f'{OUT_DIR}/{EXP_NAME}_rsa_{file_suffix}_rmse_table.csv',
+    rmse_table.to_csv(f'{OUT_DIR}/{OUT_LABEL[file_suffix][1]}_rmse.csv',
                       index=False, encoding='utf-8-sig')
 
     print(f'\n  Level Effect Size Table ({file_suffix}):')

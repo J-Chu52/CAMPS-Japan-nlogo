@@ -11,8 +11,8 @@ Data inputs (in DATA_DIR):
   - demographic_validation-table.csv    (BehaviorSpace: 18 age counts + 18 death counts per tick)
 
 Outputs (in OUT_DIR):
-  - fig_521_demographic_reproduction.png
-  - fig_522_mortality_validation.png
+  - fig04_demographic_reproduction.png
+  - fig05_mortality_validation.png
 
 Model baseline: n* = 4 (~2028 agents), 100 runs × 40 ticks, 1994 Q1 → 2003 Q4.
 """
@@ -36,8 +36,8 @@ POP_FILE  = os.path.join(EMP_DIR, "population1994.csv")
 LIFE_FILE = os.path.join(EMP_DIR, "real death prob.csv")
 SIM_FILE  = os.path.join(DATA_DIR, "demographic validation-table.csv")
 
-OUT_521 = os.path.join(OUT_DIR, "demographic_reproduction.png")
-OUT_522 = os.path.join(OUT_DIR, "mortality_validation.png")
+OUT_521 = os.path.join(OUT_DIR, "fig04_demographic_reproduction.png")
+OUT_522 = os.path.join(OUT_DIR, "fig05_mortality_validation.png")
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
