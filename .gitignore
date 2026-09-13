@@ -1,0 +1,6 @@
+.DS_Store
+~$*
+*.xlsx.bak
+__pycache__/
+*.pyc
+_git_tmp_leftovers/

@@ -1,0 +1,10 @@
+﻿Parameter,Unemployment,GDP Growth,Inflation,Pension Growth
+Birth Count Shift,+13.38 (L),+1.72 (L),+1.01 (L),+1.07 (L)
+Policy Rate Shift,+0.57 (M),+0.00 (·),+0.76 (M),-0.05 (·)
+Deposit Rate Shift,-0.41 (S),+0.14 (·),+0.18 (·),-0.12 (·)
+Consumer Choices,-8.31 (L),+5.32 (L),-0.33 (S),+2.00 (L)
+Job Applications,-3.53 (L),+0.64 (M),+0.32 (S),+1.35 (L)
+Credit Threshold,-0.07 (·),+0.16 (·),-0.05 (·),-0.11 (·)
+Default Tolerance,-0.58 (M),-0.01 (·),-2.40 (L),+0.15 (·)
+Debt Repayment Rate,+0.33 (S),+0.31 (S),-1.05 (L),-0.23 (S)
+Retirement Ages,+40.40 (L),+1.25 (L),-7.02 (L),+22.71 (L)
