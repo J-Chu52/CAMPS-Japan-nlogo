@@ -2,17 +2,17 @@
 # ============================================================
 # CAMPS-Japan — run all 22 OAT sensitivity experiments headless
 #
-#   bash run_all_rsa.sh              # run everything, skip finished ones
-#   FORCE=1 bash run_all_rsa.sh      # re-run everything from scratch
-#   THREADS=4 bash run_all_rsa.sh    # limit parallelism
-#   bash run_all_rsa.sh mpc-income credit-thre    # run only these
+#   bash simulations/run_all_rsa.sh              # run everything, skip finished ones
+#   FORCE=1 bash simulations/run_all_rsa.sh      # re-run everything from scratch
+#   THREADS=4 bash simulations/run_all_rsa.sh    # limit parallelism
+#   bash simulations/run_all_rsa.sh mpc-income credit-thre    # run only these
 #
 # Output goes to  data/validation/1994-2003 <param>-table.csv
 # which is exactly what analysis/rsa_all_v2.py expects.
 # ============================================================
 set -u
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$REPO/data/validation"
 LOG="$REPO/rsa_run.log"
 
@@ -27,7 +27,7 @@ if [[ -z "$MODEL" ]]; then
 fi
 if [[ ! -f "$MODEL" ]]; then
   echo "ERROR: model file not found. Set it explicitly:"
-  echo "  MODEL=/path/to/CAPMSJapan_v2.nlogo bash run_all_rsa.sh"
+  echo "  MODEL=/path/to/CAPMSJapan_v2.nlogo bash simulations/run_all_rsa.sh"
   exit 1
 fi
 
@@ -42,7 +42,7 @@ if [[ -z "$NETLOGO" ]]; then
 fi
 if [[ ! -x "${NETLOGO:-}/netlogo-headless.sh" ]]; then
   echo "ERROR: netlogo-headless.sh not found. Set it explicitly:"
-  echo "  NETLOGO='/path/to/NetLogo 6.4.0' bash run_all_rsa.sh"
+  echo "  NETLOGO='/path/to/NetLogo 6.4.0' bash simulations/run_all_rsa.sh"
   exit 1
 fi
 

@@ -2,10 +2,10 @@
 # ============================================================
 # CAMPS-Japan — run the four 2-parameter response-surface scans headless
 #
-#   bash run_surfaces.sh                  # run all four, skip finished ones
-#   FORCE=1 bash run_surfaces.sh          # re-run everything
-#   THREADS=4 bash run_surfaces.sh        # limit parallelism
-#   bash run_surfaces.sh "surf mpc x retire"    # run only matching ones
+#   bash simulations/run_surfaces.sh                  # run all four, skip finished ones
+#   FORCE=1 bash simulations/run_surfaces.sh          # re-run everything
+#   THREADS=4 bash simulations/run_surfaces.sh        # limit parallelism
+#   bash simulations/run_surfaces.sh "surf mpc x retire"    # run only matching ones
 #
 # 34,500 runs total (1,150 parameter cells x 30 repetitions).
 # Output: data/validation/1994-2003 surf <a> x <b>-table.csv
@@ -13,7 +13,7 @@
 # ============================================================
 set -u
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$REPO/data/validation"
 LOG="$REPO/surfaces_run.log"
 
@@ -25,7 +25,7 @@ if [[ -z "$MODEL" ]]; then
     [[ -f "$cand" ]] && MODEL="$cand" && break
   done
 fi
-[[ -f "$MODEL" ]] || { echo "ERROR: model not found. MODEL=/path/to/CAPMSJapan_v2.nlogo bash run_surfaces.sh"; exit 1; }
+[[ -f "$MODEL" ]] || { echo "ERROR: model not found. MODEL=/path/to/CAPMSJapan_v2.nlogo bash simulations/run_surfaces.sh"; exit 1; }
 
 NETLOGO="${NETLOGO:-}"
 if [[ -z "$NETLOGO" ]]; then
@@ -35,9 +35,9 @@ if [[ -z "$NETLOGO" ]]; then
     [[ -x "$cand/netlogo-headless.sh" ]] && NETLOGO="$cand" && break
   done
 fi
-[[ -x "${NETLOGO:-}/netlogo-headless.sh" ]] || { echo "ERROR: netlogo-headless.sh not found. NETLOGO='/path/to/NetLogo 6.4.0' bash run_surfaces.sh"; exit 1; }
+[[ -x "${NETLOGO:-}/netlogo-headless.sh" ]] || { echo "ERROR: netlogo-headless.sh not found. NETLOGO='/path/to/NetLogo 6.4.0' bash simulations/run_surfaces.sh"; exit 1; }
 
-# JAVA_VERSION=17 bash run_surfaces.sh  -> pick a specific installed JDK
+# JAVA_VERSION=17 bash simulations/run_surfaces.sh  -> pick a specific installed JDK
 if [[ -z "${JAVA_HOME:-}" ]]; then
   if [[ -x /usr/libexec/java_home ]]; then
     if [[ -n "${JAVA_VERSION:-}" ]]; then
@@ -55,7 +55,7 @@ if ! "$JAVA_BIN" -version >/dev/null 2>&1; then
   echo "  JAVA_BIN tried : $JAVA_BIN"
   echo "  Install one    : brew install --cask temurin@17"
   echo "                   or https://adoptium.net  (Temurin 17, macOS aarch64)"
-  echo "  Then re-run. To pick a version: JAVA_VERSION=17 bash run_surfaces.sh"
+  echo "  Then re-run. To pick a version: JAVA_VERSION=17 bash simulations/run_surfaces.sh"
   exit 1
 fi
 JAVA_DESC="$("$JAVA_BIN" -version 2>&1 | head -1)"

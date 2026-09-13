@@ -2,18 +2,23 @@
 # =============================================================================
 # CAMPS-Japan - reproduce every figure and table
 #
-#   bash run_all_analysis.sh            run everything possible
-#   bash run_all_analysis.sh --check    only check inputs and dependencies
-#   bash run_all_analysis.sh --list     list the scripts and what they produce
+#   bash run_all.sh                     regenerate every figure and table (~1 min)
+#   bash run_all.sh --check             check inputs and dependencies only
+#   bash run_all.sh --list              list the analyses and what each produces
+#   bash run_all.sh --with-simulations  re-run the NetLogo experiments first (hours)
 #
 # Reads   data/empirical/ and data/validation/
-# Writes  outputs/
-# Nothing outside outputs/ is modified. Re-running is safe; files are overwritten.
+# Writes  outputs/  (and logs/)
+# Nothing else is modified. Re-running is safe; files are overwritten.
 #
-# Two of the analyses need BehaviorSpace exports that are too large to ship in
-# this repository. They are skipped automatically, with a note saying which
-# experiment regenerates the missing file. Everything else runs from the data
-# included here.
+# This is the only script a reader needs. It requires Python, not NetLogo: the
+# simulation output it works from is included in data/validation/.
+#
+# Two analyses need BehaviorSpace exports too large to ship here. They are
+# skipped automatically, with a note naming the experiment that regenerates the
+# missing file. To produce those files yourself, use --with-simulations, which
+# runs simulations/run_all_rsa.sh and simulations/run_surfaces.sh first. That
+# needs NetLogo 6.4 and takes several hours.
 # =============================================================================
 set -uo pipefail
 
@@ -22,11 +27,12 @@ cd "$REPO"
 export MPLBACKEND=Agg          # write figures to file, never open a window
 export PYTHONWARNINGS=ignore
 
-MODE="run"
+MODE="run"; SIMS=0
 case "${1:-}" in
   --check) MODE="check" ;;
   --list)  MODE="list" ;;
-  -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  --with-simulations) SIMS=1 ;;
+  -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   "") ;;
   *) echo "unknown option: $1 (try --help)"; exit 2 ;;
 esac
@@ -48,8 +54,8 @@ JOBS=(
 # how to regenerate each missing input
 regen_hint () {
   case "$1" in
-    *"complete scan 5x3"*)  echo "run the '1994-2003 complete scan 5x3' BehaviorSpace experiment (bash run_all_rsa.sh)" ;;
-    *"surf "*)              echo "run the five surface scans (bash run_surfaces.sh)" ;;
+    *"complete scan 5x3"*)  echo "run the '1994-2003 complete scan 5x3' BehaviorSpace experiment (bash simulations/run_all_rsa.sh)" ;;
+    *"surf "*)              echo "run the five surface scans (bash simulations/run_surfaces.sh)" ;;
     *)                      echo "see Data availability in README.md" ;;
   esac
 }
@@ -64,6 +70,19 @@ if [ "$MODE" = "list" ]; then
     printf '%-42s  %s\n' "$s" "$o"
   done
   exit 0
+fi
+
+# ---- optional: regenerate the simulation output with NetLogo ----------------
+if [ "$SIMS" = "1" ]; then
+  echo "Re-running the NetLogo experiments. This takes several hours."
+  echo
+  for sim in simulations/run_all_rsa.sh simulations/run_surfaces.sh; do
+    echo ">>> $sim"
+    bash "$REPO/$sim" || { echo "error: $sim failed - see the log it names above."; exit 1; }
+    echo
+  done
+  echo ">>> simulations done, continuing with the analysis"
+  echo
 fi
 
 # ---- interpreter and packages ----------------------------------------------

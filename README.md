@@ -8,7 +8,9 @@ public pension system, calibrated on 1994-2003 and tested out of sample on
 ## Layout
 
 - `model/CAPMSJapan_v2.nlogo` - the model, including all BehaviorSpace experiments
-- `analysis/` - the ten scripts that produce every figure and table in the paper
+- `run_all.sh` - single entry point: regenerates every figure and table
+- `analysis/` - the ten scripts it calls, one per group of figures
+- `simulations/` - NetLogo drivers that regenerate the BehaviorSpace exports
 - `data/empirical/` - historical Japanese input and validation series, and
   `Japan_1994_2018_data_collection_EN.xlsx`, the full data-collection workbook
   (one sheet per series, sources documented in `00_README`)
@@ -20,16 +22,22 @@ public pension system, calibrated on 1994-2003 and tested out of sample on
 
 To regenerate every figure and table from the data in this repository:
 
-    bash run_all_analysis.sh
+    bash run_all.sh
 
-`bash run_all_analysis.sh --check` verifies the inputs and Python dependencies
-without writing anything; `--list` shows which script produces which figure.
-Two analyses are skipped automatically because their BehaviorSpace exports are
-too large to distribute (see Data availability); the script names the experiment
-that regenerates each one. Per-analysis logs are written to `logs/`.
+That is the only command needed, and it needs Python but not NetLogo: the
+simulation output it works from is in `data/validation/`. It takes about a
+minute and writes to `outputs/`.
 
+`--check` verifies the inputs and Python dependencies without writing anything;
+`--list` shows which analysis produces which figure; `--with-simulations`
+re-runs the NetLogo experiments first (NetLogo 6.4, several hours) before
+redoing the analysis. Two analyses are skipped automatically because their
+BehaviorSpace exports are too large to distribute (see Data availability); the
+script names the experiment that regenerates each one. Per-analysis logs go to
+`logs/`.
 
-Requires NetLogo (BehaviorSpace) and Python with pandas, numpy, matplotlib and scipy.
+Requires Python 3.9 or newer with pandas, numpy, matplotlib and scipy; NetLogo
+6.4 is needed only for `--with-simulations`.
 
 | Paper item | Script |
 | --- | --- |
@@ -60,7 +68,7 @@ All figures are generated at 600 dpi.
 with two exceptions that exceed GitHub's file-size limit or are simply too large
 to distribute: the five two-dimensional response-surface scans
 (`… surf …-table.csv`) and the full 5x3 policy scan (`complete scan 5x3-table.csv`,
-152 MB). Both can be regenerated with `run_surfaces.sh` and `run_all_rsa.sh`, and
+152 MB). Both can be regenerated with `simulations/run_surfaces.sh` and `simulations/run_all_rsa.sh`, and
 are available from the author on request.
 
 ## Policy-rate experiment
