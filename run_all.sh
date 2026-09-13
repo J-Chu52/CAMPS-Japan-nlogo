@@ -12,13 +12,13 @@
 # Nothing else is modified. Re-running is safe; files are overwritten.
 #
 # This is the only script a reader needs. It requires Python, not NetLogo: the
-# simulation output it works from is included in data/validation/.
+# simulation output it works from is included in data/validation/, stored
+# gzip-compressed. The first run unpacks it automatically.
 #
-# Two analyses need BehaviorSpace exports too large to ship here. They are
-# skipped automatically, with a note naming the experiment that regenerates the
-# missing file. To produce those files yourself, use --with-simulations, which
-# runs simulations/run_all_rsa.sh and simulations/run_surfaces.sh first. That
-# needs NetLogo 6.4 and takes several hours.
+# Nothing is withheld: every export behind every figure and table is in this
+# repository. To regenerate them from the model itself rather than reusing them,
+# run --with-simulations, which calls simulations/run_all_rsa.sh and
+# simulations/run_surfaces.sh first. That needs NetLogo 6.4 and takes hours.
 # =============================================================================
 set -uo pipefail
 
@@ -71,6 +71,21 @@ if [ "$MODE" = "list" ]; then
   done
   exit 0
 fi
+
+# ---- unpack the simulation output ------------------------------------------
+# The raw BehaviorSpace exports are stored gzip-compressed so that every one of
+# them fits in the repository. Unpack any that have not been unpacked yet; this
+# happens once and takes a minute.
+need=0
+for gz in "$REPO"/data/validation/*.csv.gz; do
+  [ -e "$gz" ] || continue
+  plain="${gz%.gz}"
+  [ -f "$plain" ] && continue
+  [ "$need" = 0 ] && { echo "Unpacking the simulation output (first run only)"; need=1; }
+  printf '  %s\n' "$(basename "$plain")"
+  gunzip -c "$gz" > "$plain" || { echo "error: could not unpack $gz"; exit 1; }
+done
+[ "$need" = 1 ] && echo
 
 # ---- optional: regenerate the simulation output with NetLogo ----------------
 if [ "$SIMS" = "1" ]; then

@@ -14,8 +14,10 @@ public pension system, calibrated on 1994-2003 and tested out of sample on
 - `data/empirical/` - historical Japanese input and validation series, and
   `Japan_1994_2018_data_collection_EN.xlsx`, the full data-collection workbook
   (one sheet per series, sources documented in `00_README`)
-- `data/validation/` - raw BehaviorSpace exports: the 22 one-at-a-time sensitivity
-  tables and the baseline, out-of-sample, demographic, OLG and scaling runs
+- `data/validation/` - every raw BehaviorSpace export, gzip-compressed: the 22
+  one-at-a-time sensitivity tables, the two response-surface scan sets, the
+  5 x 3 policy scan, and the baseline, out-of-sample, demographic, OLG and
+  scaling runs. `run_all.sh` unpacks them on first use
 - `outputs/` - figures (fig01-fig23) and result tables (tab10-tab18) as produced by the scripts
 
 ## Reproducing the results
@@ -28,13 +30,13 @@ That is the only command needed, and it needs Python but not NetLogo: the
 simulation output it works from is in `data/validation/`. It takes about a
 minute and writes to `outputs/`.
 
+The first run unpacks the compressed simulation output, which adds about a
+minute; later runs skip that step.
+
 `--check` verifies the inputs and Python dependencies without writing anything;
 `--list` shows which analysis produces which figure; `--with-simulations`
-re-runs the NetLogo experiments first (NetLogo 6.4, several hours) before
-redoing the analysis. Two analyses are skipped automatically because their
-BehaviorSpace exports are too large to distribute (see Data availability); the
-script names the experiment that regenerates each one. Per-analysis logs go to
-`logs/`.
+re-runs the NetLogo experiments from the model itself (NetLogo 6.4, several
+hours) before redoing the analysis. Per-analysis logs go to `logs/`.
 
 Requires Python 3.9 or newer with pandas, numpy, matplotlib and scipy; NetLogo
 6.4 is needed only for `--with-simulations`.
@@ -64,12 +66,16 @@ All figures are generated at 600 dpi.
 
 ## Data availability
 
-`data/validation/` holds the BehaviorSpace exports behind every figure and table,
-with two exceptions that exceed GitHub's file-size limit or are simply too large
-to distribute: the five two-dimensional response-surface scans
-(`… surf …-table.csv`) and the full 5x3 policy scan (`complete scan 5x3-table.csv`,
-152 MB). Both can be regenerated with `simulations/run_surfaces.sh` and `simulations/run_all_rsa.sh`, and
-are available from the author on request.
+Nothing is withheld. `data/validation/` contains every raw BehaviorSpace export
+behind every figure and table in the paper, including the 5 x 3 policy scan and
+the five two-dimensional response-surface scans. The exports are stored
+gzip-compressed (`*.csv.gz`, 178 MB in total) so that each file fits within
+GitHub's size limit; `run_all.sh` unpacks them on its first run, which restores
+the 516 MB of plain CSV the analysis scripts read.
+
+To unpack them by hand instead:
+
+    gunzip -k data/validation/*.csv.gz
 
 ## Policy-rate experiment
 
