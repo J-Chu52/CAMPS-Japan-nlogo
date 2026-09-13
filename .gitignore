@@ -1,6 +1,18 @@
-.DS_Store
-~$*
+# ---- too large to distribute (see Data availability in README) --------------
+data/validation/complete scan 5x3-table.csv
+data/validation/1994-2003 surf *-table.csv
+
+# ---- intermediate splits, not needed to reproduce anything ------------------
+data/wide/
+
+# ---- superseded / working copies of the data workbook -----------------------
+data/empirical/Japan 1994~2018 data collection.xlsx
 *.xlsx.bak
+~$*
+
+# ---- run artefacts and OS cruft ---------------------------------------------
+logs/
+archive/
+.DS_Store
 __pycache__/
 *.pyc
-_git_tmp_leftovers/

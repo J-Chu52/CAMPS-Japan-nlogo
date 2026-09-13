@@ -18,6 +18,17 @@ public pension system, calibrated on 1994-2003 and tested out of sample on
 
 ## Reproducing the results
 
+To regenerate every figure and table from the data in this repository:
+
+    bash run_all_analysis.sh
+
+`bash run_all_analysis.sh --check` verifies the inputs and Python dependencies
+without writing anything; `--list` shows which script produces which figure.
+Two analyses are skipped automatically because their BehaviorSpace exports are
+too large to distribute (see Data availability); the script names the experiment
+that regenerates each one. Per-analysis logs are written to `logs/`.
+
+
 Requires NetLogo (BehaviorSpace) and Python with pandas, numpy, matplotlib and scipy.
 
 | Paper item | Script |
