@@ -14,7 +14,8 @@ Usage:
 
 Outputs:
     fig10_olg_demographic_setup.png - Panels A-E: population pyramids for all 5 scenarios.
-                                 Panel F: dependency ratio evolution, 1994-2003.
+                                 Panels F-H: dependency ratio, pension balance and
+                                 unemployment rate, 1994-2003.
     fig11_olg_pension.png     - Core OLG necessity evidence (1995-2002, 4 subplots)
     fig12_olg_macro.png            - Macroeconomic outcomes (3 subplots, no loan index)
 """
@@ -199,11 +200,13 @@ def dep_ratio_from_bins(bins):
 
 
 # ============================================================
-# FIGURE 1: Demographic setup (2x3 grid: 5 pyramids + dep ratio evolution)
+# FIGURE 1: Demographic set-up and outcomes (2x4 grid: 5 pyramids + 3 outcome panels)
 # ============================================================
 def plot_demographic_setup(df):
     """Panels A-E: population pyramid for each scenario present in the data.
-    Panel F: dependency ratio evolution over 1994-2003, all scenarios overlaid."""
+    Panel F: dependency ratio evolution over 1994-2003, all scenarios overlaid.
+    Panels G-H: pension balance and unemployment rate over the same window, so
+    that the demographic set-up and the outcomes it produces appear together."""
     scenarios = present_scenarios(df)
 
     bins_by = {s: to_real_age_bins(PYRAMID_DATA[s]) for s in scenarios if s in PYRAMID_DATA}
@@ -215,16 +218,16 @@ def plot_demographic_setup(df):
     retire_idx = next(i for i, l in enumerate(labels) if l.startswith('65'))
 
     n = len(scenarios)
-    ncols = 3 if n > 3 else n
+    ncols = 4 if n > 3 else n
     nrows = 2 if n > 3 else 1
 
-    fig = plt.figure(figsize=(13.5, 9.2 if nrows == 2 else 5.5))
-    gs = fig.add_gridspec(nrows, ncols, hspace=0.5, wspace=0.28)
+    fig = plt.figure(figsize=(18, 9.2 if nrows == 2 else 5.5))
+    gs = fig.add_gridspec(nrows, ncols, hspace=0.52, wspace=0.30)
 
-    # Grid positions for pyramid panels, leaving the last cell of the grid for Panel F
+    # Grid positions: pyramids first, then the three outcome panels.
     all_positions = [(r, c) for r in range(nrows) for c in range(ncols)]
     pyramid_positions = all_positions[:n]
-    dep_ratio_pos = all_positions[n] if len(all_positions) > n else None
+    outcome_positions = all_positions[n:]
 
     first_ax = None
     for i, s in enumerate(scenarios):
@@ -254,31 +257,53 @@ def plot_demographic_setup(df):
         else:
             plt.setp(ax.get_yticklabels(), visible=False)
 
-    # Panel F (or last panel): dependency ratio evolution, all scenarios
-    if dep_ratio_pos is not None:
-        r, c = dep_ratio_pos
+    # Outcome panels: dependency ratio, pension balance, unemployment.
+    outcome_specs = [
+        ('dep_ratio', 'Old-age dependency ratio',
+         f'Dependency ratio\nevolution ({START_YEAR}–{START_YEAR + 9})', False, False),
+        ('pension_balance', 'Pension balance (units)',
+         f'Pension balance\ntrajectory ({START_YEAR}–{START_YEAR + 9})', False, True),
+        ('unemployment', 'Unemployment (%)',
+         f'Unemployment rate\n({START_YEAR}–{START_YEAR + 9})', True, False),
+    ]
+
+    legend_ax = None
+    for j, (var, ylab, title, percent, zeroline) in enumerate(outcome_specs):
+        if j >= len(outcome_positions) or var not in df.columns:
+            continue
+        r, c = outcome_positions[j]
         ax = fig.add_subplot(gs[r, c])
-        summary = summarize(df, 'dep_ratio')
+        summary = summarize(df, var)
+        factor = 100 if percent else 1
         for s in scenarios:
             sub = summary[summary.scenario == s]
-            ax.plot(sub.year, sub['mean'], color=COLORS[s], lw=1.8, label=LABELS[s])
-            ax.fill_between(sub.year, sub.ci_lo, sub.ci_hi, color=COLORS[s], alpha=0.15)
-        ax.set_title(f'{chr(65 + n)}. Dependency ratio\nevolution ({START_YEAR}–{START_YEAR + 9})',
-                     fontsize=11, fontweight='bold')
+            ax.plot(sub.year, sub['mean'] * factor, color=COLORS[s], lw=1.8, label=LABELS[s])
+            ax.fill_between(sub.year, sub.ci_lo * factor, sub.ci_hi * factor,
+                            color=COLORS[s], alpha=0.15)
+        if zeroline:
+            ax.axhline(0, color='gray', linestyle=':', lw=0.8)
+        ax.set_title(f'{chr(65 + n + j)}. {title}', fontsize=11, fontweight='bold')
         ax.set_xlabel('Year', fontsize=9)
-        ax.set_ylabel('Old-age dependency ratio', fontsize=9)
+        ax.set_ylabel(ylab, fontsize=9)
         ax.grid(True, alpha=0.3)
-        ax.legend(loc='upper right', fontsize=6.5, frameon=True, framealpha=0.9)
+        if legend_ax is None:
+            legend_ax = ax
 
     legend_elements = [
         Patch(facecolor='#888888', alpha=0.95, label='Working age (15–64)'),
         Patch(facecolor='#888888', alpha=0.42, label='Retired (65+)'),
     ]
-    fig.tight_layout(rect=[0, 0.04, 1, 0.98])
-    fig.legend(handles=legend_elements, loc='lower center', ncol=2, bbox_to_anchor=(0.5, 0.0),
+    fig.subplots_adjust(left=0.055, right=0.985, top=0.915, bottom=0.165,
+                        hspace=0.55, wspace=0.30)
+
+    if legend_ax is not None:
+        handles, labels_legend = legend_ax.get_legend_handles_labels()
+        fig.legend(handles, labels_legend, loc='lower center', ncol=5,
+                   bbox_to_anchor=(0.5, 0.065), frameon=False, fontsize=9.5)
+    fig.legend(handles=legend_elements, loc='lower center', ncol=2, bbox_to_anchor=(0.5, 0.012),
                frameon=False, fontsize=9)
 
-    plt.savefig(f'{OUTPUT_DIR}/fig10_olg_demographic_setup.png', bbox_inches='tight')
+    plt.savefig(f'{OUTPUT_DIR}/fig10_olg_demographic_setup.png', bbox_inches='tight', dpi=400)
     plt.close()
     print('  Saved fig10_olg_demographic_setup.png')
 
